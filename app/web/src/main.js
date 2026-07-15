@@ -1,6 +1,7 @@
-const STORAGE_KEY = 'tour-driving-route-planner:v3';
+const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
+    const STORAGE_KEY = `tour-driving-route-planner:v4:${runtime.user?.id || runtime.mode || 'local'}`;
     const ROUTE_COLORS = ['#1677ff', '#16a34a', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
-    const localService = window.LocalServiceClient.create();
+    const localService = window.AppServiceClient.create();
     const el = (id) => document.getElementById(id);
 
     const defaultRoute = {
@@ -106,6 +107,7 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
     let activeTabId = 'routePanel';
     let jsonEditorDirty = true;
     let jsonSyncTimer = null;
+    let cloudSaveTimer = null;
     const archiveController = window.ArchiveController.create({
       el,
       localService,
@@ -148,7 +150,8 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       clearSegments: () => { segmentResults = []; },
       renderAll,
       renderDaySelect,
-      setTab
+      setTab,
+      onChanged: () => saveRoute(false)
     });
     const closePointEditor = pointEditor.close;
     const confirmPointEdit = pointEditor.confirm;
@@ -190,7 +193,7 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       closeSetupOverlay();
       bindEvents();
       renderAll(false);
-      toast('地图已就绪，正在扫描 data/routes/ 路线…');
+      toast(localService.capabilities?.cloudRoutes ? '地图已就绪，正在同步你的路线…' : '地图已就绪，正在读取路线…');
       const readyPoints = route.days.some((day) => getDayPoints(day).map((x) => x.point).filter(isPointReady).length >= 2);
       if (readyPoints) {
         try {
@@ -321,7 +324,14 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
     function openSetupOverlay(message) {
       el('setupKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
       el('setupSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
-      el('setupStatus').textContent = message || '配置会写入浏览器，并同步到 data/config/local.env（gitignore，不会进 GitHub）。';
+      const cloudManaged = localService.capabilities?.editableMapConfig === false;
+      el('setupKeyInput').disabled = cloudManaged;
+      el('setupSecurityInput').disabled = cloudManaged;
+      el('setupSaveBtn').hidden = cloudManaged;
+      el('setupTestBtn').hidden = cloudManaged;
+      el('setupStatus').textContent = message || (cloudManaged
+        ? '地图配置由站点管理员在 EdgeOne 环境变量中统一维护。'
+        : '配置会写入浏览器，并同步到 data/config/local.env。');
       el('setupOverlay').classList.add('open');
       el('mapPlaceholder')?.classList.add('show');
     }
@@ -331,6 +341,9 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
     }
 
     function openConfigModal() {
+      if (localService.capabilities?.editableMapConfig === false) {
+        return toast('网站地图配置由管理员统一维护。');
+      }
       el('amapKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
       el('amapSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
       el('configStatus').textContent = '保存后页面会重新加载高德地图。密钥只存在本机浏览器。';
@@ -361,6 +374,10 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
     }
 
     function openExportModal() {
+      if (!localService.capabilities?.serverExport) {
+        downloadCurrentRoute();
+        return;
+      }
       el('exportRenderVideo').checked = false;
       el('exportModal').classList.add('open');
       startExportModalPolling();
@@ -372,6 +389,9 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
     }
 
     async function saveAmapConfigFromInputs(keyId, securityId, statusId) {
+      if (localService.capabilities?.editableMapConfig === false) {
+        return toast('网站地图配置由管理员统一维护。');
+      }
       const key = el(keyId).value.trim();
       const securityJsCode = el(securityId).value.trim();
       if (!key || !securityJsCode) {
@@ -429,7 +449,22 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
         routeBook.activeRouteId = route.id;
         routeStore.save(routeBook);
         syncEditor();
-        if (showToast) toast('已保存到浏览器（未导出到 data/routes/）。');
+        if (localService.capabilities?.cloudRoutes) {
+          if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
+          if (showToast) toast('正在保存路线…');
+          const snapshot = getEditableRoute(route);
+          cloudSaveTimer = setTimeout(async () => {
+            cloudSaveTimer = null;
+            const {response, data} = await localService.saveRoute(snapshot, currentMapLayer);
+            if (!response.ok || !data?.ok) {
+              toast('云端保存失败：' + (data?.message || '请检查网络'));
+              return;
+            }
+            if (showToast) toast('路线已保存到云端。');
+          }, 280);
+        } else if (showToast) {
+          toast(runtime.mode === 'preview' ? '已保存为当前浏览器草稿。' : '已保存到浏览器，导出后写入 data/routes/。');
+        }
       } catch (err) {
         toast('保存失败：' + err.message);
       }
@@ -446,12 +481,13 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       segmentResults = [];
       saveRoute(false);
       renderAll(true);
-      toast('已新建空白路线（仅浏览器）。规划好后请点“导出”写入 data/routes/。');
+      toast(localService.capabilities?.cloudRoutes ? '已新建路线并同步到你的账户。' : '已新建空白路线。');
     }
 
     function deleteCurrentRoute() {
       if (routeBook.routes.length <= 1) return toast('至少保留一条线路。');
       if (!confirm(`删除线路“${route.name}”？`)) return;
+      const deletedRouteId = route.id;
       routeBook.routes = routeBook.routes.filter((r) => r.id !== route.id);
       routeBook.activeRouteId = routeBook.routes[0].id;
       route = routeStore.getActive(routeBook);
@@ -459,6 +495,11 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       segmentResults = [];
       saveRoute(false);
       renderAll(true);
+      if (localService.capabilities?.cloudRoutes) {
+        localService.deleteRoute(deletedRouteId).then(({response, data}) => {
+          if (!response.ok || !data?.ok) toast('云端删除失败：' + (data?.message || '请重试'));
+        });
+      }
     }
 
     function syncEditor(force = false) {
@@ -609,6 +650,7 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       segmentResults = [];
       currentRouteView = String(route.days.length - 1);
       renderAll(true);
+      saveRoute(false);
       toast('已新增一天。');
     }
 
@@ -630,6 +672,7 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
         }
         segmentResults = [];
         renderAll(true);
+        saveRoute(false);
         toast('坐标重识别完成；个别失败点已保留原坐标。');
       } finally {
         hideLoading();
@@ -661,6 +704,7 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       [list[waypointIndex], list[nextIndex]] = [list[nextIndex], list[waypointIndex]];
       segmentResults = [];
       renderAll(true);
+      saveRoute(false);
     };
 
     window.deleteWaypoint = function(dayIndex, waypointIndex) {
@@ -669,6 +713,7 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       list.splice(waypointIndex, 1);
       segmentResults = [];
       renderAll(true);
+      saveRoute(false);
     };
 
     window.deleteDay = function(dayIndex) {
@@ -676,6 +721,7 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       route.days.splice(dayIndex, 1);
       segmentResults = [];
       renderAll(true);
+      saveRoute(false);
     };
 
     async function loadConfigFromServer() {
@@ -757,6 +803,22 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       }
     }
 
+    function downloadCurrentRoute() {
+      saveRoute(false);
+      const content = JSON.stringify(getEditableRoute(route), null, 2);
+      const blob = new Blob([content], {type: 'application/json;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const safeName = (cleanRouteName(route.name) || 'road-trip-route').replace(/[\\/:*?"<>|]+/g, '-');
+      anchor.href = url;
+      anchor.download = `${safeName}.route.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      toast('路线 JSON 已下载。PDF 和视频可在本地高级版生成。');
+    }
+
     function isMostlyBlankRoute(r) {
       return routeStore.isMostlyBlank(r);
     }
@@ -824,6 +886,17 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
         renderAll(false);
         toast('已清空为空白路线。');
       };
+      if (!localService.capabilities?.serverExport) {
+        el('exportBtn').textContent = '下载';
+        el('exportBtn').title = '下载当前路线 JSON';
+      }
+      if (localService.capabilities?.editableMapConfig === false) {
+        el('configBtn').hidden = true;
+      }
+      if (localService.capabilities?.cloudRoutes) {
+        el('newRouteTopBtn').title = '新建并保存到当前账户';
+        el('routeSelect').title = '选择当前账户下的路线';
+      }
       renderAll(false);
     }
 
@@ -854,7 +927,9 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
       await refreshArchivedRoutes({autoSelectFirst: isMostlyBlankRoute(route)});
 
       if (!hasAmapConfig()) {
-        openSetupOverlay('第一次使用：请配置高德 Web JS API Key 与安全密钥。保存后写入 data/config/local.env，并加载交互地图。');
+        openSetupOverlay(localService.capabilities?.editableMapConfig === false
+          ? '站点尚未配置高德地图。请在 EdgeOne Pages 中添加 VITE_AMAP_KEY 和 VITE_AMAP_SECURITY_JS_CODE 后重新部署。'
+          : '第一次使用：请配置高德 Web JS API Key 与安全密钥，然后加载交互地图。');
         return;
       }
 
@@ -866,7 +941,8 @@ const STORAGE_KEY = 'tour-driving-route-planner:v3';
         toast('地图加载成功');
       } catch (error) {
         el('mapPlaceholder')?.classList.add('show');
-        openSetupOverlay((error && error.message ? error.message + '。' : '') + '请检查 Key、安全密钥、网络与域名白名单（127.0.0.1 / localhost）。配置文件：data/config/local.env');
+        const targetDomain = localService.capabilities?.mode === 'cloud' ? location.hostname : '127.0.0.1 / localhost';
+        openSetupOverlay((error && error.message ? error.message + '。' : '') + `请检查 Key、安全密钥、网络与域名白名单（${targetDomain}）。`);
         toast('高德地图加载失败，请重新配置。');
       }
     }

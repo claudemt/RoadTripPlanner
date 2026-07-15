@@ -12,7 +12,8 @@
     clearSegments,
     renderAll,
     renderDaySelect,
-    setTab
+    setTab,
+    onChanged
   }) {
     let context = null;
     let mapClickEnabled = false;
@@ -107,7 +108,11 @@
       }
       try {
         const scenic = await scenicController.saveFromEditor(point);
-        if (scenic) toast('景点介绍已保存到 data/scenes/。');
+        if (scenic) {
+          toast(scenicController.isShared?.()
+            ? '景点介绍已更新，并记录了共同维护版本。'
+            : '景点介绍已保存到本地。');
+        }
       } catch (error) {
         return toast('景点介绍保存失败：' + error.message);
       }
@@ -115,6 +120,7 @@
       setView(String(currentContext.dayIndex));
       close();
       renderAll(true);
+      if (onChanged) onChanged();
       toast('已更新点位。点击“计算路线”刷新时间和距离。');
     }
 

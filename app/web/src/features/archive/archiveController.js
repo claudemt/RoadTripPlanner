@@ -37,6 +37,19 @@
       box.innerHTML = routes.map((item) => {
         const version = encodeURIComponent(item.updatedAt || item.archivedAt || Date.now());
         const base = localService.routeAssetBase(item);
+        if (item.cloud) {
+          return `
+            <div class="archive-item cloud-route-item">
+              <div class="archive-item-head">
+                <span>${escapeHtml(cleanRouteName(item.name) || item.safeName)}</span>
+                <span class="cloud-save-state">云端</span>
+              </div>
+              <div class="archive-item-actions">
+                <button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>
+              </div>
+            </div>
+          `;
+        }
         return `
           <div class="archive-item">
             <div class="archive-item-head">
@@ -102,7 +115,10 @@
         syncEditor();
         renderArchiveList(archivedRoutes);
       } catch (error) {
-        box.innerHTML = `<div class="hint">读取导出失败：${escapeHtml(error.message)}。请先运行 start.bat 启动本地服务。</div>`;
+        const suffix = localService.capabilities?.mode === 'local'
+          ? '。请确认 start.bat 本地服务正在运行。'
+          : '。请检查登录状态和 Supabase 数据表配置。';
+        box.innerHTML = `<div class="hint">读取路线失败：${escapeHtml(error.message)}${suffix}</div>`;
       }
     }
 

@@ -1,6 +1,16 @@
 # RoadTripPlanner
 
-一个本地运行的自驾路线规划工具。它使用高德 Web JS API 做交互式地图、地点搜索和驾车路线计算；路线编辑完成后，可以导出路线 JSON、旅行手册 Markdown/PDF 和 Remotion MP4 视频。
+一个同时支持正式网站和本地高级导出的自驾路线规划工具。网站版使用 EdgeOne Pages 发布静态前端，Supabase 提供邮箱登录、用户路线隔离、共享景点和图片存储；本地版继续提供 Markdown/PDF 和 Remotion MP4 导出。
+
+## 网站发布
+
+1. 创建 Supabase 项目。
+2. 执行 `app/cloud/supabase/migrations/001_initial_schema.sql`。
+3. 在 EdgeOne Pages 中导入 Git 仓库。
+4. 设置项目根目录为 `app`；仓库中的 `edgeone.json` 会自动配置构建命令、Node 版本和输出目录。
+5. 按 `app/.env.example` 添加 Supabase 和高德环境变量。
+
+完整操作说明见 `app/cloud/README.md`。
 
 ## 快速开始
 
@@ -11,7 +21,7 @@ cd app
 npm install
 ```
 
-2. 启动本地服务：
+2. 启动本地高级版：
 
 ```powershell
 .\start.bat
@@ -25,7 +35,14 @@ npm install
 http://127.0.0.1:6137
 ```
 
-直接打开 `app/web/index.html` 不能完整使用，因为密钥配置、路线扫描和导出都需要本地服务。
+`start.bat` 会先构建网站，再启动本地导出服务。
+
+只预览静态网站：
+
+```powershell
+cd app
+npm run dev
+```
 
 ## 配置高德密钥
 
@@ -80,7 +97,9 @@ data/routes/<路线名>/
 | 路径 | 说明 |
 |------|------|
 | `start.bat` | 唯一启动入口 |
-| `app/web/` | 浏览器端页面、样式与功能模块 |
+| `app/web/` | 可发布网站、登录页、地图和功能模块 |
+| `app/dist/` | EdgeOne 发布产物，由构建生成 |
+| `app/cloud/` | Supabase 数据表和 EdgeOne 部署说明 |
 | `app/server/` | 本地 Node 服务、归档和导出逻辑 |
 | `app/video/` | Remotion/TypeScript 视频工程 |
 | `app/package.json` | 统一 npm 工作区入口 |

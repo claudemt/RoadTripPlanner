@@ -31,6 +31,9 @@
       const description = el('pointScenicDescription').value.trim();
       const files = [...(el('pointScenicImages').files || [])];
       if (!description && !files.length) return null;
+      if (files.length > 6) throw new Error('每次最多上传 6 张图片');
+      const invalid = files.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024);
+      if (invalid) throw new Error('图片必须小于 8MB，且使用常见图片格式');
       const images = [];
       for (const file of files) {
         images.push({name: file.name, dataUrl: await readFileAsDataUrl(file)});
@@ -86,6 +89,17 @@
     async function ensureInfo(name) {
       let found = findInfo(name);
       if (found) return found;
+      if (typeof localService.getScenic === 'function') {
+        try {
+          const {response, data} = await localService.getScenic(name);
+          if (response.ok && data?.spot) {
+            window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
+              .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(name));
+            window.SCENIC_SPOTS.push(data.spot);
+            return data.spot;
+          }
+        } catch (_) {}
+      }
       for (const folder of folderCandidates(name)) {
         try {
           await loadFolder(folder);
@@ -137,6 +151,7 @@
     }
 
     return {
+      isShared: () => Boolean(localService.capabilities?.sharedScenes),
       updateImageList,
       saveFromEditor,
       ensureInfo,

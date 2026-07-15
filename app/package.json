@@ -8,8 +8,17 @@
   ],
   "scripts": {
     "start": "node server/route-render-server.js",
-    "dev": "node server/route-render-server.js",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "local": "node server/route-render-server.js",
     "studio": "npm --workspace video run studio",
     "typecheck": "npm --workspace video run typecheck"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.5"
+  },
+  "devDependencies": {
+    "vite": "^8.1.4"
   }
 }

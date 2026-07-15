@@ -3,23 +3,83 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>自驾路线规划器</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <meta name="description" content="登录后规划、保存并整理自己的自驾路线。" />
+  <title>山河路书</title>
   <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body>
+  <section class="auth-gate" id="authGate" aria-label="登录">
+    <div class="auth-photo" aria-hidden="true"></div>
+    <div class="auth-shade" aria-hidden="true"></div>
+    <svg class="auth-route" viewBox="0 0 1440 900" preserveAspectRatio="none" aria-hidden="true">
+      <path class="auth-route-shadow" d="M-40 760 C180 650 300 815 470 655 S720 540 810 620 S1040 750 1160 530 S1360 260 1500 360" />
+      <path class="auth-route-line" d="M-40 760 C180 650 300 815 470 655 S720 540 810 620 S1040 750 1160 530 S1360 260 1500 360" />
+    </svg>
+
+    <header class="auth-nav">
+      <div class="auth-brand">
+        <span class="auth-brand-mark">R</span>
+        <span id="authSiteName">山河路书</span>
+      </div>
+      <span class="auth-edition">ROAD TRIP PLANNER</span>
+    </header>
+
+    <div class="auth-copy">
+      <p class="auth-eyebrow" id="authEyebrow">YOUR OWN ROADBOOK</p>
+      <h1>把几天的路，<br>排成一张清楚的行程。</h1>
+      <p class="auth-lead">路线只属于你，沿途的风景由同行的人一起补全。</p>
+    </div>
+
+    <div class="auth-login-rail">
+      <div class="auth-login-heading">
+        <span>邮箱登录</span>
+        <small>无需密码</small>
+      </div>
+
+      <form class="auth-form" id="emailLoginForm">
+        <label for="loginEmail">邮箱地址</label>
+        <div class="auth-input-row">
+          <input id="loginEmail" type="email" autocomplete="email" placeholder="name@example.com" required />
+          <button class="auth-submit" id="authSubmitBtn" type="submit">发送验证码</button>
+        </div>
+      </form>
+
+      <form class="auth-form" id="otpLoginForm" hidden>
+        <label for="loginOtp">验证码已发送到 <strong id="otpEmail"></strong></label>
+        <div class="auth-input-row otp-row">
+          <input id="loginOtp" inputmode="numeric" autocomplete="one-time-code" placeholder="六位验证码" maxlength="8" required />
+          <button class="auth-submit" type="submit">进入路线</button>
+        </div>
+        <button class="auth-back" id="backToEmailBtn" type="button">更换邮箱</button>
+      </form>
+
+      <button class="auth-preview" id="previewModeBtn" type="button" hidden>进入本地预览</button>
+      <p class="auth-message" id="authMessage" aria-live="polite"></p>
+    </div>
+
+    <footer class="auth-footer">
+      <span>路线规划 · 行程整理 · 景点共建</span>
+      <span>中国自驾路线工具</span>
+    </footer>
+  </section>
+
   <div class="app">
     <aside class="sidebar">
       <div class="header">
-        <h1>自驾路线规划器</h1>
+        <div>
+          <h1>山河路书</h1>
+          <p id="accountMode">本地模式</p>
+        </div>
+        <div class="account">
+          <span id="accountEmail">正在连接</span>
+          <button id="signOutBtn" type="button" hidden>退出</button>
+        </div>
       </div>
 
       <div class="toolbar top-toolbar">
         <button class="primary" id="calcBtn">刷新</button>
-        <button id="newRouteTopBtn" title="新建空白路线（先存在浏览器，点导出才写入 data/routes/）">新建</button>
-        <button class="primary" id="exportBtn" title="导出到 route 目录：JSON + MD + PDF + MP4（未导出前只在浏览器）">导出</button>
+        <button id="newRouteTopBtn" title="新建一条路线">新建</button>
+        <button class="primary" id="exportBtn" title="网站版下载 JSON；本地版可导出文档和视频">导出</button>
         <button id="mapLayerBtn" title="地图类型：标准/卫星/混合">类型</button>
         <button id="configBtn">配置</button>
         <select id="mapLayerSelect" title="地图类型" hidden>
@@ -31,7 +91,7 @@
 
       <div class="route-strip">
         <div class="route-combo">
-          <select id="routeSelect" title="选择当前浏览器路线，或载入已导出到 data/routes/ 的路线"></select>
+          <select id="routeSelect" title="选择一条路线"></select>
           <select id="routeViewSelect" title="查看范围"></select>
         </div>
         <button class="small" id="routeEditBtn">编辑</button>
@@ -126,7 +186,7 @@
           </div>
         </div>
         <div class="scenic-editor">
-          <label>景点介绍（可选，会保存到 data/scenes/）</label>
+          <label>景点介绍（登录用户共同维护）</label>
           <textarea id="pointScenicDescription" placeholder="输入这个地点的介绍、游玩提示、特色等"></textarea>
           <input id="pointScenicImages" type="file" accept="image/*" multiple />
           <div class="scenic-image-list" id="pointScenicImageList">未选择图片</div>
@@ -151,7 +211,7 @@
           <li>打开 <a href="https://console.amap.com/" target="_blank" rel="noreferrer">高德开放平台控制台</a></li>
           <li>创建「Web端(JS API)」应用，获取 Key</li>
           <li>在安全密钥中设置并复制 securityJsCode</li>
-          <li>将本机域名/地址加入白名单：<code>127.0.0.1</code>、<code>localhost</code></li>
+          <li>将本地域名或网站正式域名加入高德白名单</li>
         </ol>
         <div class="form-grid">
           <div>
@@ -167,7 +227,7 @@
           <button class="primary" id="setupSaveBtn">保存并加载地图</button>
           <button id="setupTestBtn">测试连接</button>
         </div>
-        <div class="hint" id="setupStatus">配置会写入浏览器，并同步到 data/config/local.env（gitignore，不会进 GitHub）。</div>
+        <div class="hint" id="setupStatus">本地版写入浏览器和本机配置；网站版由 EdgeOne 环境变量统一维护。</div>
       </div>
     </div>
   </div>
@@ -238,23 +298,6 @@
     </div>
   </div>
 
-  <script src="./src/config/amapConfig.js"></script>
-  <script src="./src/api/localServiceClient.js"></script>
-  <script src="./src/map/mapProvider.js"></script>
-  <script src="./src/map/amapProvider.js"></script>
-  <script src="./src/domain/routeModel.js"></script>
-  <script src="./src/utils/format.js"></script>
-  <script src="./src/utils/html.js"></script>
-  <script src="./src/state/routeBookStore.js"></script>
-  <script src="./src/ui/feedback.js"></script>
-  <script src="./src/ui/routeRenderer.js"></script>
-  <script src="./src/features/scenic/scenicController.js"></script>
-  <script src="./src/features/export/exportTaskController.js"></script>
-  <script src="./src/features/map/routeMapController.js"></script>
-  <script src="./src/features/search/placeSearchController.js"></script>
-  <script src="./src/features/archive/archiveController.js"></script>
-  <script src="./src/features/point/pointEditorController.js"></script>
-  <script src="./src/features/export/videoDataBuilder.js"></script>
-  <script src="./src/main.js"></script>
+  <script type="module" src="./src/bootstrap.js"></script>
 </body>
 </html>

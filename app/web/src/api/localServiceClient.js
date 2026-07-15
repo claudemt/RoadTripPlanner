@@ -25,6 +25,13 @@
     });
 
     return {
+      capabilities: {
+        mode: 'local',
+        cloudRoutes: false,
+        sharedScenes: false,
+        serverExport: true,
+        editableMapConfig: true
+      },
       getServiceBase,
       fetchJson,
       apiUrl,
