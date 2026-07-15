@@ -134,11 +134,11 @@ Authentication -> URL Configuration
 正式域名生效后设置：
 
 ```text
-Site URL: https://mt.speiyous.com/
-Redirect URL: https://mt.speiyous.com/**
+Site URL: https://map.bestapi.best/
+Redirect URL: https://map.bestapi.best/**
 ```
 
-2026-07-15 配置时 Supabase Dashboard 显示技术故障公告，保存请求未成功，当前仍是 `http://localhost:3000`。域名生效后必须重新保存。
+2026-07-15 配置时 Supabase Dashboard 显示技术故障公告，保存请求未成功，当前仍是 `http://localhost:3000`。`map.bestapi.best` 生效后必须重新保存。
 
 默认 Supabase 邮件适合早期测试。正式开放给用户前，建议接入自有 SMTP，提高发信额度、送达率和品牌一致性。
 
@@ -175,26 +175,25 @@ Output directory: dist
 目标域名：
 
 ```text
-https://mt.speiyous.com/
+https://map.bestapi.best/
 ```
 
-EdgeOne 已添加该域名，目前等待所有权验证。Cloudflare 需要新增：
+EdgeOne 已添加该域名，所有权验证已通过，CNAME 已被 EdgeOne 识别为 Effective。DNS 需要保留：
 
 ```text
-Type: TXT
-Host: edgeonereclaim.mt
-Value: reclaim-ea9wckfqg2a2l4nsnxwimk4x8qyrfjgg
+Type: CNAME
+Host: map
+Value: map.bestapi.best.pages.dnsoe8.com
 ```
 
-TXT 生效后：
+CNAME 生效后：
 
 1. 回到 EdgeOne Domains。
-2. 点击 `Verify ownership`。
-3. EdgeOne 显示 CNAME 目标后，在 Cloudflare 新增或修改 `mt` 的 CNAME。
-4. 验证阶段先使用 DNS only。
-5. EdgeOne 状态变为 Effective 后启用 HTTPS。
-6. 确认 `http://mt.speiyous.com/` 自动跳转到 HTTPS。
-7. 把 `mt.speiyous.com` 加入高德 Web JS API 域名白名单。
+2. 确认 `map.bestapi.best` 状态为 Effective。
+3. 配置 Edge HTTPS certificate。
+4. 开启 Force HTTPS。
+5. 确认 `http://map.bestapi.best/` 自动跳转到 HTTPS。
+6. 把 `map.bestapi.best` 加入高德 Web JS API 域名白名单。
 
 腾讯云国际站当前还提示 `Incomplete Account Information`。需先完成账户资料，才能稳定使用自定义域名和后续云服务器。
 
