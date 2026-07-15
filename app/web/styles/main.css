@@ -1310,6 +1310,13 @@
       grid-template-columns: minmax(0, 1fr) 126px;
       border-bottom: 1px solid rgba(255,255,255,.72);
     }
+    .auth-input-row.password-row {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 112px;
+      column-gap: 16px;
+    }
+    .auth-input-row.reset-row {
+      grid-template-columns: minmax(0, 1fr) 112px;
+    }
     .auth-input-row input {
       height: 48px;
       padding: 0 12px 0 0;
@@ -1425,7 +1432,14 @@
       }
       .auth-login-heading { font-size: 18px; }
       .auth-message { grid-column: 1; }
-      .auth-input-row { grid-template-columns: minmax(0, 1fr) 112px; }
+      .auth-input-row,
+      .auth-input-row.reset-row { grid-template-columns: minmax(0, 1fr) 112px; }
+      .auth-input-row.password-row {
+        height: auto;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+      }
+      .auth-input-row.password-row .auth-submit { width: 112px; justify-self: end; }
       .auth-footer span:last-child { display: none; }
       .header { padding: 12px; }
       .header h1 { font-size: 17px; }

@@ -39,13 +39,14 @@
   function create(runtime) {
     const supabase = runtime.supabase;
     const userId = runtime.user?.id;
+    const isAdmin = String(runtime.user?.email || '').toLowerCase() === 'admin@map.bestapi.best';
     const capabilities = {
       mode: 'cloud',
       cloudRoutes: true,
       sharedScenes: true,
       serverExport: true,
       cloudExports: true,
-      editableMapConfig: false,
+      editableMapConfig: isAdmin,
     };
 
     return {
@@ -57,19 +58,42 @@
         return {response: response(), data: {ok: true, mode: 'cloud'}};
       },
       async getConfig() {
+        const {data, error} = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'amap')
+          .maybeSingle();
+        if (error) return fail(error.message);
+        const saved = data?.value || {};
+        const key = String(saved.key || runtime.config.amapKey || '').trim();
+        const securityJsCode = String(saved.securityJsCode || runtime.config.amapSecurityJsCode || '').trim();
         return {
           response: response(),
           data: {
             ok: true,
-            key: runtime.config.amapKey,
-            securityJsCode: runtime.config.amapSecurityJsCode,
-            configured: Boolean(runtime.config.amapKey && runtime.config.amapSecurityJsCode),
-            source: 'EdgeOne environment variables',
+            key,
+            securityJsCode,
+            configured: Boolean(key && securityJsCode),
+            editable: isAdmin,
+            source: data?.value ? 'Supabase app_settings' : 'EdgeOne environment variables',
           },
         };
       },
-      async saveConfig() {
-        return fail('网站地图配置由 EdgeOne 环境变量统一管理。', 403);
+      async saveConfig(payload) {
+        if (!isAdmin) return fail('只有管理员可以修改地图配置。', 403);
+        const key = String(payload?.key || '').trim();
+        const securityJsCode = String(payload?.securityJsCode || '').trim();
+        if (!key || !securityJsCode) return fail('请填写 Key 和安全密钥。', 400);
+        const {error} = await supabase
+          .from('app_settings')
+          .upsert({
+            key: 'amap',
+            value: {key, securityJsCode},
+            updated_by: userId,
+            updated_at: new Date().toISOString(),
+          }, {onConflict: 'key'});
+        if (error) return fail(error.message);
+        return {response: response(), data: {ok: true, source: 'Supabase app_settings'}};
       },
       async listRoutes() {
         const {data, error} = await supabase

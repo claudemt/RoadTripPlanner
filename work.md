@@ -13,8 +13,9 @@
   |     - 独立个人工作台
   |
   |-- Supabase
-  |     - 邮箱登录
+  |     - 用户名密码登录
   |     - 用户路线
+  |     - admin 站点设置
   |     - 共享景点资料
   |     - 导出任务队列
   |     - 私有导出文件
@@ -74,7 +75,7 @@ RoadTripPlanner/
 原始 `index.html` 同时承担页面结构、地图调用、路线状态、导出和景点管理，后续已拆分为：
 
 - `web/src/api/`：本地与云端服务接口
-- `web/src/auth/`：邮箱登录与会话
+- `web/src/auth/`：用户名密码登录、密码找回与会话
 - `web/src/domain/`：路线模型
 - `web/src/features/`：路线、地图、景点、导出、个人工作台
 - `web/src/map/`：地图厂商适配层
@@ -88,7 +89,7 @@ RoadTripPlanner/
 
 网站包含三个主要状态：
 
-1. 登录封面：邮箱 Magic Link / OTP 登录。
+1. 登录封面：用户名 + 密码登录，忘记密码时使用邮箱找回。
 2. 路线工作区：地图和紧凑左侧路线编辑栏。
 3. 个人工作台：点击地图页头像进入，采用独立全屏界面。
 
@@ -96,9 +97,9 @@ RoadTripPlanner/
 
 - 我的路线：打开当前账户保存的路线。
 - 导出文件：查看任务状态，打开 JSON、路线图、Markdown、PDF 和 MP4。
-- 账户设置：查看邮箱、数据范围、站点服务状态并退出登录。
+- 账户设置：查看账号、数据范围、站点服务状态并退出登录。
 
-网站端高德 Key 由 EdgeOne 环境变量统一提供，普通用户看不到也不需要填写“配置”。本地高级版仍可从本机配置文件读取 Key。
+网站端高德 Key 由 admin 在网站配置页写入 Supabase `app_settings`。普通用户可以读取配置加载地图，但不能修改；本地高级版仍可从本机配置文件读取 Key。
 
 ## 6. Supabase
 
@@ -111,10 +112,12 @@ RoadTripPlanner/
 
 1. `app/cloud/supabase/migrations/001_initial_schema.sql`
 2. `app/cloud/supabase/migrations/002_cloud_exports.sql`
+3. `app/cloud/supabase/migrations/003_app_settings.sql`
 
 主要数据：
 
 - `routes`：用户私有路线，RLS 按 `user_id` 隔离。
+- `app_settings`：站点级配置，所有登录用户可读，只有 admin 可写。
 - `scenes`：所有登录用户共同维护的景点介绍。
 - `scene_revisions`：景点修改记录。
 - `export_jobs`：后台导出任务。
@@ -123,7 +126,7 @@ RoadTripPlanner/
 
 `route-exports` 的对象路径以用户 UUID 开头，读取策略只允许当前用户访问自己的目录。浏览器通过短时 Signed URL 打开文件。
 
-### 邮箱登录配置
+### 登录与回跳配置
 
 Supabase Dashboard 中进入：
 
@@ -156,11 +159,11 @@ EdgeOne 环境变量：
 VITE_SITE_NAME
 VITE_SUPABASE_URL
 VITE_SUPABASE_PUBLISHABLE_KEY
-VITE_AMAP_KEY
-VITE_AMAP_SECURITY_JS_CODE
 ```
 
 这些变量用于浏览器端。不要把 Supabase `service_role` Key 放进任何 `VITE_` 变量。
+
+高德 Web JS API Key 和安全密钥现在由网站 admin 在前端配置页写入 Supabase `public.app_settings`。EdgeOne 环境变量中的 `VITE_AMAP_KEY` / `VITE_AMAP_SECURITY_JS_CODE` 只作为兼容兜底，不再是主要配置入口。
 
 构建配置：
 
@@ -195,7 +198,34 @@ CNAME 生效后：
 5. 确认 `http://map.bestapi.best/` 自动跳转到 HTTPS。
 6. 把 `map.bestapi.best` 加入高德 Web JS API 域名白名单。
 
-腾讯云国际站当前还提示 `Incomplete Account Information`。需先完成账户资料，才能稳定使用自定义域名和后续云服务器。
+腾讯云国际站可能提示 `Incomplete Account Information`，但当前 EdgeOne Pages、自定义域名和 HTTPS 可以在不提交信用卡的情况下访问与配置。
+
+## 8.1 登录、admin 与地图配置
+
+网站前台使用“用户名 + 密码”登录。Supabase Auth 底层仍然需要邮箱格式账号，因此内部约定：
+
+```text
+用户名：admin
+内部邮箱：admin@map.bestapi.best
+初始密码：admin123
+```
+
+前台输入 `admin / admin123` 即可登录。普通用户也按用户名登录，内部映射为 `<username>@map.bestapi.best`。忘记密码时才显示邮箱输入，用 Supabase 的密码找回邮件完成重置。
+
+admin 权限：
+
+- 只有 admin 可以在网站配置页保存高德 Web JS API Key 和安全密钥。
+- 配置保存到 `public.app_settings`，所有登录用户只读使用。
+- 普通用户不能编辑地图 Key。
+- admin 的测试路线仍保存在 `public.routes`，依赖 RLS 只对 admin 自己可见，普通用户不会看到。
+
+数据库迁移：
+
+```text
+app/cloud/supabase/migrations/003_app_settings.sql
+```
+
+已导入 admin 测试路线：滇北线、晋西线、九兰线、青甘线、三神线、苏西线。
 
 ## 9. 全量导出与视频
 
@@ -259,10 +289,10 @@ git diff --check
 
 发布后检查：
 
-- 登录封面显示“邮箱登录”，不是“静态预览”。
-- 地图页不显示用户填写高德 Key 的入口。
+- 登录封面显示“账号登录”，不是“静态预览”。
+- admin 登录后可以打开配置并修改高德 Key；普通用户不能修改。
 - 头像可以进入独立个人工作台。
-- 路线只显示当前用户的数据。
+- 路线只显示当前用户的数据，普通用户看不到 admin 测试路线。
 - 景点信息可由登录用户共同修改。
 - 导出任务可查看进度、取消和打开文件。
 - EdgeOne 部署状态为 Success。

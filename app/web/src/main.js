@@ -340,7 +340,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       const setupIntro = document.querySelector('#setupOverlay header p');
       if (setupTitle) setupTitle.textContent = cloudManaged ? '地图服务未就绪' : '配置高德地图';
       if (setupIntro) setupIntro.textContent = cloudManaged
-        ? '网站地图由站点统一配置，普通用户无需填写 Key。'
+        ? '网站地图由管理员统一配置，普通用户无需填写 Key。'
         : '填写高德 Web JS API Key 和安全密钥后加载地图。';
       el('setupOverlay').classList.toggle('cloud-managed', cloudManaged);
       el('setupKeyInput').disabled = cloudManaged;
@@ -348,8 +348,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('setupSaveBtn').hidden = cloudManaged;
       el('setupTestBtn').hidden = cloudManaged;
       el('setupStatus').textContent = message || (cloudManaged
-        ? '地图配置由站点管理员在 EdgeOne 环境变量中统一维护。'
-        : '配置会写入浏览器，并同步到 data/config/local.env。');
+        ? '地图配置由站点管理员统一维护。'
+        : localService.capabilities?.mode === 'cloud'
+          ? '配置会写入站点设置，保存后所有用户刷新即可使用。'
+          : '配置会写入浏览器，并同步到 data/config/local.env。');
       el('setupOverlay').classList.add('open');
       el('mapPlaceholder')?.classList.add('show');
     }
@@ -364,7 +366,9 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
       el('amapKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
       el('amapSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
-      el('configStatus').textContent = '保存后页面会重新加载高德地图。密钥只存在本机浏览器。';
+      el('configStatus').textContent = localService.capabilities?.mode === 'cloud'
+        ? '保存后会写入站点配置，所有用户刷新后使用这组 Key。'
+        : '保存后页面会重新加载高德地图。密钥只存在本机浏览器。';
       el('configModal').classList.add('open');
     }
 
@@ -421,8 +425,12 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       window._AMapSecurityConfig = { securityJsCode };
       if (statusId) el(statusId).textContent = '已保存，正在同步并加载地图…';
       try {
-        await localService.saveConfig({ key, securityJsCode });
-      } catch (_) {}
+        const {response, data} = await localService.saveConfig({ key, securityJsCode });
+        if (!response.ok || !data?.ok) throw new Error(data?.message || '保存失败');
+      } catch (error) {
+        if (statusId) el(statusId).textContent = '保存失败：' + error.message;
+        return toast('保存地图配置失败：' + error.message);
+      }
       toast('配置已保存，正在刷新…');
       if (location.protocol === 'file:') {
         location.href = 'http://127.0.0.1:6137/';
@@ -961,7 +969,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
       if (!hasAmapConfig()) {
         openSetupOverlay(localService.capabilities?.editableMapConfig === false
-          ? '站点尚未配置高德地图。请在 EdgeOne Pages 中添加 VITE_AMAP_KEY 和 VITE_AMAP_SECURITY_JS_CODE 后重新部署。'
+          ? '站点尚未配置高德地图。请联系管理员登录 admin 账号填写 Key。'
           : '第一次使用：请配置高德 Web JS API Key 与安全密钥，然后加载交互地图。');
         return;
       }

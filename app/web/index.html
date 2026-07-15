@@ -32,25 +32,35 @@
 
     <div class="auth-login-rail">
       <div class="auth-login-heading">
-        <span>邮箱登录</span>
-        <small>无需密码</small>
+        <span>账号登录</span>
+        <small>用户名和密码</small>
       </div>
 
-      <form class="auth-form" id="emailLoginForm">
-        <label for="loginEmail">邮箱地址</label>
-        <div class="auth-input-row">
-          <input id="loginEmail" type="email" autocomplete="email" placeholder="name@example.com" required />
-          <button class="auth-submit" id="authSubmitBtn" type="submit">发送登录邮件</button>
+      <form class="auth-form" id="passwordLoginForm">
+        <label for="loginUsername">用户名</label>
+        <div class="auth-input-row password-row">
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="admin" required />
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="密码" required />
+          <button class="auth-submit" id="authSubmitBtn" type="submit">进入路线</button>
         </div>
+        <button class="auth-back" id="forgotPasswordBtn" type="button">忘记密码</button>
       </form>
 
-      <form class="auth-form" id="otpLoginForm" hidden>
-        <label for="loginOtp">登录邮件已发送到 <strong id="otpEmail"></strong></label>
-        <div class="auth-input-row otp-row">
-          <input id="loginOtp" inputmode="numeric" autocomplete="one-time-code" placeholder="六位验证码" maxlength="8" required />
-          <button class="auth-submit" type="submit">进入路线</button>
+      <form class="auth-form" id="passwordResetForm" hidden>
+        <label for="resetEmail">找回密码邮箱</label>
+        <div class="auth-input-row reset-row">
+          <input id="resetEmail" type="email" autocomplete="email" placeholder="name@example.com" required />
+          <button class="auth-submit" type="submit">发送邮件</button>
         </div>
-        <button class="auth-back" id="backToEmailBtn" type="button">更换邮箱</button>
+        <button class="auth-back" id="backToLoginBtn" type="button">返回登录</button>
+      </form>
+
+      <form class="auth-form" id="newPasswordForm" hidden>
+        <label for="newPassword">设置新密码</label>
+        <div class="auth-input-row reset-row">
+          <input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码" minlength="6" required />
+          <button class="auth-submit" type="submit">保存密码</button>
+        </div>
       </form>
 
       <button class="auth-preview" id="previewModeBtn" type="button" hidden>进入本地预览</button>
@@ -229,7 +239,7 @@
           <button class="primary" id="setupSaveBtn">保存并加载地图</button>
           <button id="setupTestBtn">测试连接</button>
         </div>
-        <div class="hint" id="setupStatus">本地版写入浏览器和本机配置；网站版由 EdgeOne 环境变量统一维护。</div>
+        <div class="hint" id="setupStatus">本地版写入浏览器和本机配置；网站版由 admin 统一维护。</div>
       </div>
     </div>
   </div>

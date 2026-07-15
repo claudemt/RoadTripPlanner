@@ -1,6 +1,6 @@
 # RoadTripPlanner
 
-一个同时支持正式网站和本地高级导出的自驾路线规划工具。网站版使用 EdgeOne Pages 发布静态前端，Supabase 提供邮箱登录、用户路线隔离、共享景点和图片存储；本地版继续提供 Markdown/PDF 和 Remotion MP4 导出。
+一个同时支持正式网站和本地高级导出的自驾路线规划工具。网站版使用 EdgeOne Pages 发布静态前端，Supabase 提供用户名密码登录、用户路线隔离、共享景点和图片存储；本地版继续提供 Markdown/PDF 和 Remotion MP4 导出。
 
 ## 网站发布
 
@@ -8,7 +8,7 @@
 2. 执行 `app/cloud/supabase/migrations/001_initial_schema.sql`。
 3. 在 EdgeOne Pages 中导入 Git 仓库。
 4. 设置项目根目录为 `app`；仓库中的 `edgeone.json` 会自动配置构建命令、Node 版本和输出目录。
-5. 按 `app/.env.example` 添加 Supabase 和高德环境变量。
+5. 按 `app/.env.example` 添加 Supabase 环境变量；高德 Key 由 admin 登录网站后在配置页维护。
 
 完整操作说明见 `app/cloud/README.md`。
 
