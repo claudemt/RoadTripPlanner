@@ -1,15 +1,10 @@
 const byId = (id) => document.getElementById(id);
 const INTERNAL_ACCOUNT_DOMAIN = 'map.bestapi.best';
 
-function usernameToEmail(username) {
-  const value = String(username || '').trim().toLowerCase();
-  if (!value) return '';
-  return value.includes('@') ? value : `${value}@${INTERNAL_ACCOUNT_DOMAIN}`;
-}
-
 function displayAccountName(user, runtime) {
   if (runtime.mode === 'local') return '本地模式';
-  if (!user?.email) return '访客预览';
+  const username = user?.user_metadata?.preferred_username || user?.user_metadata?.username || user?.user_metadata?.name;
+  if (!user?.email) return username || '访客预览';
   const email = String(user.email).toLowerCase();
   const suffix = `@${INTERNAL_ACCOUNT_DOMAIN}`;
   return email.endsWith(suffix) ? email.slice(0, -suffix.length) : user.email;
@@ -71,16 +66,8 @@ function enterWorkspace(runtime, user, animated = false) {
 
 export async function initAuthGate(runtime) {
   const gate = byId('authGate');
-  const loginForm = byId('passwordLoginForm');
-  const resetForm = byId('passwordResetForm');
-  const newPasswordForm = byId('newPasswordForm');
-  const usernameInput = byId('loginUsername');
-  const passwordInput = byId('loginPassword');
-  const resetEmailInput = byId('resetEmail');
-  const newPasswordInput = byId('newPassword');
+  const loginForm = byId('casdoorLoginForm');
   const previewButton = byId('previewModeBtn');
-  const forgotButton = byId('forgotPasswordBtn');
-  const backButton = byId('backToLoginBtn');
   const siteName = byId('authSiteName');
   const localHost = ['127.0.0.1', 'localhost'].includes(location.hostname);
 
@@ -116,33 +103,6 @@ export async function initAuthGate(runtime) {
   const {data, error} = await runtime.supabase.auth.getSession();
   if (error) setMessage(error.message, 'error');
   const existingUser = data?.session?.user;
-  const recoveryMode = /(?:[?#&])type=recovery(?:&|$)/.test(`${location.search}${location.hash}`);
-  if (existingUser && recoveryMode) {
-    gate.hidden = false;
-    loginForm.hidden = true;
-    resetForm.hidden = true;
-    newPasswordForm.hidden = false;
-    document.querySelector('.auth-login-heading span').textContent = '重设密码';
-    document.querySelector('.auth-login-heading small').textContent = '保存后进入路线';
-    setMessage('请设置一个新密码。', 'notice');
-    return new Promise((resolve) => {
-      newPasswordForm.onsubmit = async (event) => {
-        event.preventDefault();
-        const password = newPasswordInput.value;
-        if (password.length < 6) return setMessage('密码至少 6 位。', 'error');
-        setBusy(true);
-        setMessage('正在保存新密码…', 'notice');
-        const {data: updateData, error: updateError} = await runtime.supabase.auth.updateUser({password});
-        setBusy(false);
-        if (updateError) return setMessage(updateError.message, 'error');
-        const user = updateData?.user || existingUser;
-        history.replaceState({}, document.title, `${location.origin}${location.pathname}`);
-        setMessage('密码已更新，正在进入路线工作台。', 'success');
-        enterWorkspace(runtime, user, true);
-        resolve({user});
-      };
-    });
-  }
   if (existingUser) {
     enterWorkspace(runtime, existingUser);
     return {user: existingUser};
@@ -150,57 +110,21 @@ export async function initAuthGate(runtime) {
 
   gate.hidden = false;
   loginForm.hidden = false;
-  resetForm.hidden = true;
-  newPasswordForm.hidden = true;
 
   return new Promise((resolve) => {
     loginForm.onsubmit = async (event) => {
       event.preventDefault();
-      const email = usernameToEmail(usernameInput.value);
-      const password = passwordInput.value;
-      if (!email || !password) return setMessage('请填写用户名和密码。', 'error');
-
       setBusy(true);
-      setMessage('正在登录…', 'notice');
-      const {data: loginData, error: loginError} = await runtime.supabase.auth.signInWithPassword({
-        email,
-        password,
+      setMessage('正在打开登录页…', 'notice');
+      const {error: loginError} = await runtime.supabase.auth.signInWithOAuth({
+        provider: runtime.config.casdoorProvider || 'custom:casdoor',
+        options: {
+          redirectTo: `${location.origin}/`,
+        },
       });
       setBusy(false);
-      if (loginError) return setMessage('用户名或密码不正确。', 'error');
-
-      const user = loginData?.user || loginData?.session?.user;
-      setMessage('登录成功，正在展开路线工作台。', 'success');
-      enterWorkspace(runtime, user, true);
-      resolve({user});
-    };
-
-    resetForm.onsubmit = async (event) => {
-      event.preventDefault();
-      const email = resetEmailInput.value.trim();
-      if (!email) return setMessage('请填写用于找回密码的邮箱。', 'error');
-      setBusy(true);
-      setMessage('正在发送找回邮件…', 'notice');
-      const {error: resetError} = await runtime.supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${location.origin}/`,
-      });
-      setBusy(false);
-      if (resetError) return setMessage(resetError.message, 'error');
-      setMessage('找回密码邮件已发送，请查看邮箱。', 'success');
-    };
-
-    forgotButton.onclick = () => {
-      loginForm.hidden = true;
-      resetForm.hidden = false;
-      setMessage('');
-      resetEmailInput.focus();
-    };
-
-    backButton.onclick = () => {
-      resetForm.hidden = true;
-      loginForm.hidden = false;
-      setMessage('');
-      usernameInput.focus();
+      if (loginError) return setMessage(loginError.message, 'error');
+      resolve({user: null});
     };
   });
 }

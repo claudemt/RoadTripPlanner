@@ -21,45 +21,23 @@
         <span class="auth-brand-mark">R</span>
         <span id="authSiteName">山河路书</span>
       </div>
-      <span class="auth-edition">ROAD TRIP PLANNER</span>
     </header>
 
     <div class="auth-copy">
       <p class="auth-eyebrow" id="authEyebrow">YOUR OWN ROADBOOK</p>
       <h1>把几天的路，<br>排成一张清楚的行程。</h1>
-      <p class="auth-lead">路线只属于你，沿途的风景由同行的人一起补全。</p>
     </div>
 
     <div class="auth-login-rail">
       <div class="auth-login-heading">
         <span>账号登录</span>
-        <small>用户名和密码</small>
+        <small>Casdoor</small>
       </div>
 
-      <form class="auth-form" id="passwordLoginForm">
-        <label for="loginUsername">用户名</label>
-        <div class="auth-input-row password-row">
-          <input id="loginUsername" type="text" autocomplete="username" placeholder="admin" required />
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="密码" required />
-          <button class="auth-submit" id="authSubmitBtn" type="submit">进入路线</button>
-        </div>
-        <button class="auth-back" id="forgotPasswordBtn" type="button">忘记密码</button>
-      </form>
-
-      <form class="auth-form" id="passwordResetForm" hidden>
-        <label for="resetEmail">找回密码邮箱</label>
-        <div class="auth-input-row reset-row">
-          <input id="resetEmail" type="email" autocomplete="email" placeholder="name@example.com" required />
-          <button class="auth-submit" type="submit">发送邮件</button>
-        </div>
-        <button class="auth-back" id="backToLoginBtn" type="button">返回登录</button>
-      </form>
-
-      <form class="auth-form" id="newPasswordForm" hidden>
-        <label for="newPassword">设置新密码</label>
-        <div class="auth-input-row reset-row">
-          <input id="newPassword" type="password" autocomplete="new-password" placeholder="新密码" minlength="6" required />
-          <button class="auth-submit" type="submit">保存密码</button>
+      <form class="auth-form" id="casdoorLoginForm">
+        <label>统一账号</label>
+        <div class="auth-input-row casdoor-row">
+          <button class="auth-submit" id="authSubmitBtn" type="submit">登录 / 注册</button>
         </div>
       </form>
 
@@ -67,10 +45,6 @@
       <p class="auth-message" id="authMessage" aria-live="polite"></p>
     </div>
 
-    <footer class="auth-footer">
-      <span>路线规划 · 行程整理 · 景点共建</span>
-      <span>中国自驾路线工具</span>
-    </footer>
   </section>
 
   <div class="app">
@@ -340,7 +314,7 @@
             <h3>账户</h3>
             <dl>
               <div>
-                <dt>登录邮箱</dt>
+                <dt>账号</dt>
                 <dd id="accountSettingsEmail">—</dd>
               </div>
               <div>
@@ -370,6 +344,7 @@
             <button class="danger" id="signOutBtn" type="button" hidden>退出登录</button>
           </div>
         </section>
+
       </main>
     </div>
   </section>

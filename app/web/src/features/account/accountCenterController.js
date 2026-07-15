@@ -176,10 +176,14 @@
       stopPolling();
     }
 
-    const email = runtime?.user?.email || '当前账户';
-    el('accountProfileEmail').textContent = email;
-    el('accountSettingsEmail').textContent = email;
-    el('accountInitial').textContent = email.slice(0, 1).toUpperCase();
+    const accountName = runtime?.user?.user_metadata?.preferred_username
+      || runtime?.user?.user_metadata?.username
+      || runtime?.user?.user_metadata?.name
+      || runtime?.user?.email
+      || '当前账户';
+    el('accountProfileEmail').textContent = accountName;
+    el('accountSettingsEmail').textContent = accountName;
+    el('accountInitial').textContent = accountName.slice(0, 1).toUpperCase();
 
     document.querySelectorAll('[data-account-view]').forEach((button) => {
       button.onclick = () => setView(button.dataset.accountView);

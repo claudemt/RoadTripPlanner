@@ -7,6 +7,7 @@ const config = {
   siteName: clean(env.VITE_SITE_NAME) || '山河路书',
   supabaseUrl: clean(env.VITE_SUPABASE_URL),
   supabaseKey: clean(env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY),
+  casdoorProvider: clean(env.VITE_SUPABASE_CASDOOR_PROVIDER) || 'custom:casdoor',
   amapKey: clean(env.VITE_AMAP_KEY),
   amapSecurityJsCode: clean(env.VITE_AMAP_SECURITY_JS_CODE),
 };

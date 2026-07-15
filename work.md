@@ -13,7 +13,7 @@
   |     - 独立个人工作台
   |
   |-- Supabase
-  |     - 用户名密码登录
+  |     - Casdoor OIDC 登录接入
   |     - 用户路线
   |     - admin 站点设置
   |     - 共享景点资料
@@ -75,7 +75,7 @@ RoadTripPlanner/
 原始 `index.html` 同时承担页面结构、地图调用、路线状态、导出和景点管理，后续已拆分为：
 
 - `web/src/api/`：本地与云端服务接口
-- `web/src/auth/`：用户名密码登录、密码找回与会话
+- `web/src/auth/`：Casdoor 登录跳转与 Supabase 会话
 - `web/src/domain/`：路线模型
 - `web/src/features/`：路线、地图、景点、导出、个人工作台
 - `web/src/map/`：地图厂商适配层
@@ -89,7 +89,7 @@ RoadTripPlanner/
 
 网站包含三个主要状态：
 
-1. 登录封面：用户名 + 密码登录，忘记密码时使用邮箱找回。
+1. 登录封面：跳转 Casdoor 完成注册和登录。
 2. 路线工作区：地图和紧凑左侧路线编辑栏。
 3. 个人工作台：点击地图页头像进入，采用独立全屏界面。
 
@@ -113,6 +113,7 @@ RoadTripPlanner/
 1. `app/cloud/supabase/migrations/001_initial_schema.sql`
 2. `app/cloud/supabase/migrations/002_cloud_exports.sql`
 3. `app/cloud/supabase/migrations/003_app_settings.sql`
+4. `app/cloud/supabase/migrations/004_casdoor_admin.sql`
 
 主要数据：
 
@@ -126,7 +127,7 @@ RoadTripPlanner/
 
 `route-exports` 的对象路径以用户 UUID 开头，读取策略只允许当前用户访问自己的目录。浏览器通过短时 Signed URL 打开文件。
 
-### 登录与回跳配置
+### Casdoor 登录与回跳配置
 
 Supabase Dashboard 中进入：
 
@@ -140,6 +141,14 @@ Authentication -> URL Configuration
 Site URL: https://map.bestapi.best/
 Redirect URL: https://map.bestapi.best/**
 ```
+
+Supabase Authentication 中添加 Casdoor 对应的 Custom OAuth/OIDC provider，前端默认调用：
+
+```text
+VITE_SUPABASE_CASDOOR_PROVIDER=custom:casdoor
+```
+
+Casdoor 本地部署后，在 Casdoor 应用里配置 Supabase OAuth 回调地址。Supabase 继续负责会话和 RLS，因此 `routes`、`export_jobs` 等私有数据隔离不用重写。
 
 2026-07-15 配置时 Supabase Dashboard 显示技术故障公告，保存请求未成功，当前仍是 `http://localhost:3000`。`map.bestapi.best` 生效后必须重新保存。
 
@@ -202,27 +211,21 @@ CNAME 生效后：
 
 ## 8.1 登录、admin 与地图配置
 
-网站前台使用“用户名 + 密码”登录。Supabase Auth 底层仍然需要邮箱格式账号，因此内部约定：
-
-```text
-用户名：admin
-内部邮箱：admin@map.bestapi.best
-初始密码：admin123
-```
-
-前台输入 `admin / admin123` 即可登录。普通用户也按用户名登录，内部映射为 `<username>@map.bestapi.best`。忘记密码时才显示邮箱输入，用 Supabase 的密码找回邮件完成重置。
+网站前台不再自建注册或用户管理，注册、登录、找回密码均交给本地部署的 Casdoor。前端通过 Supabase `signInWithOAuth` 跳转到 Casdoor，回调后由 Supabase 建立会话并继续使用 RLS。
 
 admin 权限：
 
 - 只有 admin 可以在网站配置页保存高德 Web JS API Key 和安全密钥。
 - 配置保存到 `public.app_settings`，所有登录用户只读使用。
 - 普通用户不能编辑地图 Key。
-- admin 的测试路线仍保存在 `public.routes`，依赖 RLS 只对 admin 自己可见，普通用户不会看到。
+- admin 判定兼容 `admin@map.bestapi.best` 邮箱，或 Casdoor 返回的 `preferred_username` / `username` / `name` 为 `admin`。
+- admin 的测试路线仍保存在 `public.routes`，依赖 Supabase RLS 只对对应 admin 用户可见，普通用户不会看到。
 
 数据库迁移：
 
 ```text
 app/cloud/supabase/migrations/003_app_settings.sql
+app/cloud/supabase/migrations/004_casdoor_admin.sql
 ```
 
 已导入 admin 测试路线：滇北线、晋西线、九兰线、青甘线、三神线、苏西线。
@@ -289,7 +292,7 @@ git diff --check
 
 发布后检查：
 
-- 登录封面显示“账号登录”，不是“静态预览”。
+- 登录封面显示“账号登录 / Casdoor”，不是“静态预览”。
 - admin 登录后可以打开配置并修改高德 Key；普通用户不能修改。
 - 头像可以进入独立个人工作台。
 - 路线只显示当前用户的数据，普通用户看不到 admin 测试路线。

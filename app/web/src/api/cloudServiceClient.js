@@ -39,7 +39,14 @@
   function create(runtime) {
     const supabase = runtime.supabase;
     const userId = runtime.user?.id;
-    const isAdmin = String(runtime.user?.email || '').toLowerCase() === 'admin@map.bestapi.best';
+    const userEmail = String(runtime.user?.email || '').toLowerCase();
+    const userName = String(
+      runtime.user?.user_metadata?.preferred_username ||
+      runtime.user?.user_metadata?.username ||
+      runtime.user?.user_metadata?.name ||
+      '',
+    ).toLowerCase();
+    const isAdmin = userEmail === 'admin@map.bestapi.best' || userName === 'admin';
     const capabilities = {
       mode: 'cloud',
       cloudRoutes: true,
