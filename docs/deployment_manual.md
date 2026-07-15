@@ -1,0 +1,605 @@
+# RoadTripPlanner 部署手册
+
+本文档用于把 RoadTripPlanner 部署到自己的 Debian 12 服务器。前端由 Caddy 提供 HTTPS 和静态文件服务，Casdoor 负责用户注册、登录、找回密码，Supabase 负责数据库、对象存储、权限隔离和登录会话接入。
+
+示例域名：
+
+```text
+map.bestapi.best       # RoadTripPlanner 网站
+auth.bestapi.best      # Casdoor 登录中心
+```
+
+所有密钥和密码都使用占位符。不要把真实密钥提交到 Git。
+
+## 1. 部署架构
+
+```mermaid
+flowchart LR
+    User["用户浏览器"] --> Caddy["Caddy HTTPS"]
+    Caddy --> Web["RoadTripPlanner 静态前端"]
+    Caddy --> Casdoor["Casdoor 登录中心"]
+    Web --> Supabase["Supabase Auth / Database / Storage"]
+    Supabase --> Casdoor
+    Worker["可选渲染 Worker"] --> Supabase
+    Worker --> AMap["高德地图 API"]
+    Web --> AMap
+```
+
+核心分工：
+
+| 模块 | 用途 |
+| --- | --- |
+| Caddy | 自动 HTTPS、静态网站服务、反向代理 Casdoor |
+| Casdoor | 用户注册、用户名密码登录、忘记密码邮件找回 |
+| Supabase Auth | 接入 Casdoor OIDC，给前端提供登录态 |
+| Supabase Database | 保存用户路线、共享景点、站点配置 |
+| Supabase Storage | 保存导出文件和用户文件 |
+| 渲染 Worker | 可选，用于后台生成路线图、Markdown、PDF、MP4 |
+
+## 2. 域名解析
+
+在你的 DNS 服务商中添加：
+
+```text
+map.bestapi.best    A    <服务器公网 IPv4>
+auth.bestapi.best   A    <服务器公网 IPv4>
+```
+
+如果服务器有 IPv6，可以额外添加 AAAA 记录。解析生效后再继续配置 Caddy，Caddy 会自动申请 HTTPS 证书。
+
+## 3. Debian 12 基础环境
+
+登录服务器后执行：
+
+```bash
+sudo apt update
+sudo apt upgrade -y
+sudo apt install -y git curl ca-certificates gnupg unzip rsync ufw caddy
+sudo systemctl enable --now caddy
+```
+
+安装 Docker：
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo apt install -y docker-compose-plugin
+sudo usermod -aG docker $USER
+```
+
+退出 SSH 后重新登录，让 docker 用户组生效。
+
+安装 Node.js 22：
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+建议开启防火墙，仅放行 SSH、HTTP、HTTPS：
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
+
+## 4. 部署 Casdoor
+
+创建目录：
+
+```bash
+sudo mkdir -p /opt/casdoor
+sudo chown -R $USER:$USER /opt/casdoor
+cd /opt/casdoor
+```
+
+创建 `docker-compose.yml`：
+
+```yaml
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: casdoor
+      POSTGRES_USER: casdoor
+      POSTGRES_PASSWORD: CHANGE_ME_CASDOOR_DB_PASSWORD
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+
+  casdoor:
+    image: casbin/casdoor:latest
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      driverName: postgres
+      dataSourceName: "user=casdoor password=CHANGE_ME_CASDOOR_DB_PASSWORD host=db port=5432 sslmode=disable"
+      dbName: casdoor
+      runmode: prod
+      origin: "https://auth.bestapi.best"
+```
+
+把 `CHANGE_ME_CASDOOR_DB_PASSWORD` 改成强密码，然后启动：
+
+```bash
+docker compose up -d
+docker compose logs -f casdoor
+```
+
+配置 Caddy 反向代理：
+
+```bash
+sudo nano /etc/caddy/Caddyfile
+```
+
+写入或合并以下配置：
+
+```caddyfile
+auth.bestapi.best {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+验证并重载：
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+打开：
+
+```text
+https://auth.bestapi.best
+```
+
+首次进入后，用 Casdoor 默认管理员登录并立刻修改密码。常见默认账号为：
+
+```text
+账号：built-in/admin
+密码：123
+```
+
+## 5. 配置 Casdoor 应用
+
+在 Casdoor 后台创建或确认：
+
+```text
+Organization: roadtrip
+Application: roadtrip-map
+```
+
+Application 关键配置：
+
+```text
+Name: roadtrip-map
+Organization: roadtrip
+Redirect URLs:
+  https://<你的 Supabase Project Ref>.supabase.co/auth/v1/callback
+```
+
+记录以下信息，稍后填入 Supabase：
+
+```text
+Client ID
+Client Secret
+Issuer URL: https://auth.bestapi.best
+```
+
+建议创建站点管理员：
+
+```text
+username: admin
+email: admin@map.bestapi.best
+```
+
+站点会把满足以下任一条件的登录用户识别为 admin：
+
+```text
+email = admin@map.bestapi.best
+preferred_username = admin
+username = admin
+name = admin
+```
+
+admin 可以维护高德地图 Key。普通用户只能读取站点地图配置，不能修改，也不能看到 admin 的测试路线。
+
+## 6. 配置 Supabase
+
+### 6.1 执行数据库迁移
+
+在 Supabase Dashboard 打开 SQL Editor，按顺序执行：
+
+```text
+app/cloud/supabase/migrations/001_initial_schema.sql
+app/cloud/supabase/migrations/002_cloud_exports.sql
+app/cloud/supabase/migrations/003_app_settings.sql
+app/cloud/supabase/migrations/004_casdoor_admin.sql
+```
+
+迁移用途：
+
+| 文件 | 用途 |
+| --- | --- |
+| `001_initial_schema.sql` | 用户私有路线、共享景点、基础 RLS |
+| `002_cloud_exports.sql` | 导出任务和导出文件桶 |
+| `003_app_settings.sql` | 站点配置表，高德 Key 存放处 |
+| `004_casdoor_admin.sql` | Casdoor admin 识别规则 |
+
+### 6.2 配置 Auth URL
+
+进入：
+
+```text
+Authentication -> URL Configuration
+```
+
+设置：
+
+```text
+Site URL: https://map.bestapi.best
+Redirect URLs:
+  https://map.bestapi.best/**
+```
+
+### 6.3 添加 Casdoor OIDC Provider
+
+进入：
+
+```text
+Authentication -> Sign In / Providers
+```
+
+添加 Custom OAuth/OIDC provider：
+
+```text
+Provider name: casdoor
+Issuer URL: https://auth.bestapi.best
+Client ID: <Casdoor Application Client ID>
+Client Secret: <Casdoor Application Client Secret>
+```
+
+前端默认使用：
+
+```text
+VITE_SUPABASE_CASDOOR_PROVIDER=custom:casdoor
+```
+
+如果 Supabase 中的 provider 名称不是 `casdoor`，需要同步修改前端环境变量。
+
+## 7. 部署网站前端
+
+创建目录并拉取代码：
+
+```bash
+sudo mkdir -p /opt/roadtrip
+sudo chown -R $USER:$USER /opt/roadtrip
+cd /opt/roadtrip
+git clone https://github.com/claudemt/RoadTripPlanner.git .
+git checkout main
+```
+
+安装依赖：
+
+```bash
+cd app
+npm ci
+```
+
+创建生产环境变量：
+
+```bash
+nano .env.production
+```
+
+填写：
+
+```env
+VITE_SITE_NAME=山河路书
+VITE_SUPABASE_URL=https://<你的 Supabase Project Ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<你的 Supabase Publishable Key>
+VITE_SUPABASE_CASDOOR_PROVIDER=custom:casdoor
+
+# 生产环境建议由 admin 在网站配置页维护。这里保留为空即可。
+VITE_AMAP_KEY=
+VITE_AMAP_SECURITY_JS_CODE=
+```
+
+构建并发布：
+
+```bash
+npm run build
+sudo mkdir -p /var/www/roadtrip
+sudo rsync -a --delete dist/ /var/www/roadtrip/
+sudo chown -R www-data:www-data /var/www/roadtrip
+```
+
+配置 Caddy：
+
+```bash
+sudo nano /etc/caddy/Caddyfile
+```
+
+完整示例：
+
+```caddyfile
+auth.bestapi.best {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8000
+}
+
+map.bestapi.best {
+    root * /var/www/roadtrip
+    encode zstd gzip
+
+    @static path *.js *.css *.png *.jpg *.jpeg *.gif *.svg *.ico *.webp *.woff *.woff2
+    header @static Cache-Control "public, max-age=604800"
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    try_files {path} /index.html
+    file_server
+}
+```
+
+验证并重载：
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+访问：
+
+```text
+https://map.bestapi.best
+```
+
+点击登录后应跳转到 Casdoor，登录成功后回到网站。
+
+## 8. 配置高德地图 Key
+
+打开高德开放平台，创建 Web 端 JS API Key，并设置 `securityJsCode`。
+
+建议把以下域名加入高德 Web 端白名单：
+
+```text
+map.bestapi.best
+localhost
+127.0.0.1
+```
+
+登录网站 admin 后进入个人/配置界面：
+
+```text
+填写 Web JS API Key
+填写 securityJsCode
+保存
+```
+
+保存后配置会写入 Supabase `public.app_settings`。普通用户加载地图时只读取这份配置，没有修改权限。
+
+## 9. 可选：部署后台渲染 Worker
+
+如果需要网站端生成路线图、Markdown、PDF、MP4，需要部署 Worker。Worker 不需要开放公网端口，只需要能访问 Supabase 和高德 API。
+
+创建环境文件：
+
+```bash
+cd /opt/roadtrip/app
+nano worker.env
+```
+
+填写：
+
+```env
+SUPABASE_URL=https://<你的 Supabase Project Ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<Supabase Service Role Key>
+AMAP_KEY=<高德 Web JS API Key>
+AMAP_SECURITY_JS_CODE=<高德 securityJsCode>
+
+RENDER_WORKER_ID=roadtrip-render-01
+RENDER_POLL_INTERVAL_MS=5000
+ROUTE_RENDER_CONCURRENCY=1
+ROUTE_RENDER_CRF=20
+```
+
+注意：
+
+- `SUPABASE_SERVICE_ROLE_KEY` 只能放在服务器。
+- 不要把 Service Role Key 写入任何 `VITE_` 变量。
+- 不要提交 `worker.env`。
+
+构建并启动：
+
+```bash
+docker build -f worker/Dockerfile -t roadtrip-render-worker .
+docker run -d --restart unless-stopped \
+  --name roadtrip-render-worker \
+  --env-file worker.env \
+  roadtrip-render-worker
+```
+
+查看日志：
+
+```bash
+docker logs -f roadtrip-render-worker
+```
+
+更新 Worker：
+
+```bash
+cd /opt/roadtrip
+git pull
+cd app
+docker build -f worker/Dockerfile -t roadtrip-render-worker .
+docker rm -f roadtrip-render-worker
+docker run -d --restart unless-stopped \
+  --name roadtrip-render-worker \
+  --env-file worker.env \
+  roadtrip-render-worker
+```
+
+## 10. 更新网站
+
+以后更新前端：
+
+```bash
+cd /opt/roadtrip
+git pull
+cd app
+npm ci
+npm run build
+sudo rsync -a --delete dist/ /var/www/roadtrip/
+sudo chown -R www-data:www-data /var/www/roadtrip
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+## 11. 上线检查
+
+### 域名与 HTTPS
+
+```bash
+curl -I https://map.bestapi.best
+curl -I https://auth.bestapi.best
+```
+
+应返回 200 或 30x，且证书有效。
+
+### Casdoor
+
+- `https://auth.bestapi.best` 可以打开。
+- 用户可以注册和登录。
+- 忘记密码邮件服务已按 Casdoor 的邮件配置完成。
+- Casdoor Application 的 Redirect URL 指向 Supabase callback。
+- admin 用户的 username 为 `admin`，或 email 为 `admin@map.bestapi.best`。
+
+### Supabase
+
+- 4 个 SQL 迁移均已执行。
+- Authentication Site URL 是 `https://map.bestapi.best`。
+- Redirect URLs 包含 `https://map.bestapi.best/**`。
+- Custom provider 名称与 `VITE_SUPABASE_CASDOOR_PROVIDER` 匹配。
+- `routes` 表 RLS 已开启。
+- `scenes` 允许登录用户共同维护。
+- `route-exports` bucket 已存在。
+
+### 网站
+
+- 登录页不出现旧的邮箱验证码登录文案。
+- 点击登录跳转 Casdoor。
+- 登录后能回到网站。
+- admin 可以保存高德地图 Key。
+- 普通用户不能修改高德地图 Key。
+- 普通用户看不到 admin 测试路线。
+- 地图、搜索、路线规划功能正常。
+
+### Worker
+
+- 网站点击导出后，Supabase `export_jobs` 出现 queued 任务。
+- Worker 日志显示领取任务。
+- 任务完成后，个人工作台能看到导出文件。
+
+## 12. 常见问题
+
+### 登录后没有回到网站
+
+检查三处：
+
+```text
+Casdoor Redirect URL:
+https://<Supabase Project Ref>.supabase.co/auth/v1/callback
+
+Supabase Site URL:
+https://map.bestapi.best
+
+前端 provider:
+VITE_SUPABASE_CASDOOR_PROVIDER=custom:casdoor
+```
+
+### admin 看不到配置入口
+
+确认 Casdoor 返回的用户资料满足任一条件：
+
+```text
+email = admin@map.bestapi.best
+preferred_username = admin
+username = admin
+name = admin
+```
+
+修改后退出并重新登录。
+
+### 地图加载失败
+
+检查：
+
+- 高德 Key 是否为 Web 端 JS API Key。
+- `securityJsCode` 是否正确。
+- 高德白名单是否包含 `map.bestapi.best`。
+- 浏览器控制台是否提示 referer 或安全密钥错误。
+
+### 普通用户看到 admin 路线
+
+正常情况下不应该发生。检查：
+
+- Supabase `routes` 表是否开启 RLS。
+- `routes` policy 是否按 `auth.uid() = user_id` 隔离。
+- 是否误把 Supabase Service Role Key 放进前端。
+
+### 页面刷新后 404
+
+确认 Caddy 的 `map.bestapi.best` 配置包含：
+
+```caddyfile
+try_files {path} /index.html
+```
+
+### Casdoor 502
+
+检查：
+
+```bash
+docker ps
+docker logs -f casdoor-casdoor-1
+sudo systemctl status caddy
+```
+
+如果容器名不同，先用 `docker ps` 查看真实名称。
+
+## 13. 备份
+
+建议定期备份：
+
+```text
+/opt/casdoor/postgres
+/opt/roadtrip/app/.env.production
+/opt/roadtrip/app/worker.env
+/etc/caddy/Caddyfile
+```
+
+Supabase 数据建议使用 Dashboard 的备份功能，或定期导出关键表。
+
+## 14. 安全注意
+
+- Casdoor 默认管理员密码上线前必须修改。
+- Casdoor PostgreSQL 密码使用强密码。
+- Supabase Service Role Key 只能放在服务器。
+- 不要提交 `.env.production`、`worker.env`、本地路线数据和私有密钥。
+- Debian 定期更新：
+
+```bash
+sudo apt update
+sudo apt upgrade -y
+```
