@@ -40,12 +40,12 @@
         <label for="loginEmail">邮箱地址</label>
         <div class="auth-input-row">
           <input id="loginEmail" type="email" autocomplete="email" placeholder="name@example.com" required />
-          <button class="auth-submit" id="authSubmitBtn" type="submit">发送验证码</button>
+          <button class="auth-submit" id="authSubmitBtn" type="submit">发送登录邮件</button>
         </div>
       </form>
 
       <form class="auth-form" id="otpLoginForm" hidden>
-        <label for="loginOtp">验证码已发送到 <strong id="otpEmail"></strong></label>
+        <label for="loginOtp">登录邮件已发送到 <strong id="otpEmail"></strong></label>
         <div class="auth-input-row otp-row">
           <input id="loginOtp" inputmode="numeric" autocomplete="one-time-code" placeholder="六位验证码" maxlength="8" required />
           <button class="auth-submit" type="submit">进入路线</button>
@@ -72,7 +72,10 @@
         </div>
         <div class="account">
           <span id="accountEmail">正在连接</span>
-          <button id="signOutBtn" type="button" hidden>退出</button>
+          <div class="account-actions">
+            <button id="openAccountBtn" type="button" hidden>我的</button>
+            <button id="signOutBtn" type="button" hidden>退出</button>
+          </div>
         </div>
       </div>
 
@@ -258,6 +261,32 @@
     </div>
   </div>
 
+  <div class="modal account-center" id="accountCenter" aria-label="我的">
+    <div class="account-center-shell">
+      <header class="account-center-head">
+        <div>
+          <h2>我的路线与导出</h2>
+          <p>个人路线与已生成文件仅当前账户可见</p>
+        </div>
+        <button class="small" id="accountCenterClose" type="button">关闭</button>
+      </header>
+      <nav class="account-center-tabs" role="tablist" aria-label="个人空间分类">
+        <button class="active" data-account-view="routes" role="tab" aria-selected="true">
+          我的路线 <span id="myRouteCount">0</span>
+        </button>
+        <button data-account-view="exports" role="tab" aria-selected="false">
+          导出内容 <span id="myExportCount">0</span>
+        </button>
+      </nav>
+      <section class="account-center-view" id="myRoutesView">
+        <div class="account-list" id="myRoutesList"></div>
+      </section>
+      <section class="account-center-view" id="myExportsView" hidden>
+        <div class="account-list" id="myExportsList"></div>
+      </section>
+    </div>
+  </div>
+
   <div class="modal" id="exportModal">
     <div class="modal-card">
       <div class="modal-head">
@@ -269,7 +298,7 @@
           <input id="exportRenderVideo" type="checkbox" style="width:auto" />
           <span>同时渲染 MP4 视频</span>
         </label>
-        <div class="hint">默认只同步路线 JSON、视频数据、MD/PDF 文档；勾选后会额外渲染 MP4，耗时较长。</div>
+        <div class="hint">导出任务会在后台生成路线 JSON、视频数据、路线图和 MD/PDF；勾选后额外生成 MP4，可在“我的 → 导出内容”中随时查看。</div>
         <div id="exportTaskPanel" class="hint" style="display:none;margin-top:10px;border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)">
           <div id="exportTaskStatus">已有导出任务。</div>
           <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">

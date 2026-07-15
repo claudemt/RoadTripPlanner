@@ -24,6 +24,8 @@ function renderAccount(runtime, user) {
   }
 
   const signOutButton = byId('signOutBtn');
+  const accountButton = byId('openAccountBtn');
+  if (accountButton) accountButton.hidden = runtime.mode !== 'cloud';
   if (!signOutButton) return;
   signOutButton.hidden = runtime.mode !== 'cloud';
   signOutButton.onclick = async () => {
@@ -108,10 +110,13 @@ export async function initAuthGate(runtime) {
       if (!pendingEmail) return setMessage('请先填写邮箱地址。', 'error');
 
       setBusy(true);
-      setMessage('正在发送验证码…', 'notice');
+      setMessage('正在发送登录邮件…', 'notice');
       const {error: sendError} = await runtime.supabase.auth.signInWithOtp({
         email: pendingEmail,
-        options: {shouldCreateUser: true},
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: `${location.origin}/`,
+        },
       });
       setBusy(false);
       if (sendError) return setMessage(sendError.message, 'error');
@@ -120,7 +125,7 @@ export async function initAuthGate(runtime) {
       emailForm.hidden = true;
       otpForm.hidden = false;
       otpInput.focus();
-      setMessage('验证码已经发送，请查看收件箱。', 'success');
+      setMessage('登录邮件已经发送。可点击邮件中的登录链接，或输入验证码。', 'success');
     };
 
     otpForm.onsubmit = async (event) => {

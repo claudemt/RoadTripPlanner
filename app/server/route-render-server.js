@@ -7,7 +7,9 @@ const {spawn} = require('child_process');
 const SERVER_ROOT = __dirname;
 const APPLICATION_ROOT = path.dirname(SERVER_ROOT);
 const AMAP_ROOT = path.dirname(APPLICATION_ROOT);
-const DATA_ROOT = path.join(AMAP_ROOT, 'data');
+const DATA_ROOT = process.env.ROADTRIP_DATA_ROOT
+  ? path.resolve(process.env.ROADTRIP_DATA_ROOT)
+  : path.join(AMAP_ROOT, 'data');
 const CONFIG_ROOT = path.join(DATA_ROOT, 'config');
 const REMOTION_ROOT = path.join(APPLICATION_ROOT, 'video');
 const REMOTION_DATA = path.join(REMOTION_ROOT, 'src', 'projects', 'amap-route-video', 'data', 'route-video-data.json');
@@ -17,6 +19,7 @@ const SOURCE_WEB_ROOT = path.join(APPLICATION_ROOT, 'web');
 const PUBLIC_ROOT = fs.existsSync(path.join(BUILD_ROOT, 'index.html')) ? BUILD_ROOT : SOURCE_WEB_ROOT;
 const SCENE_ROOT = path.join(DATA_ROOT, 'scenes');
 const PORT = Number(process.env.AMAP_ROUTE_PORT || 6137);
+const HOST = process.env.AMAP_ROUTE_HOST || '127.0.0.1';
 const MAX_BODY = 220 * 1024 * 1024;
 const REMOTION_CONCURRENCY = String(process.env.ROUTE_RENDER_CONCURRENCY || 4);
 const REMOTION_CRF = String(process.env.ROUTE_RENDER_CRF || 20);
@@ -1336,8 +1339,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Route planner server: http://127.0.0.1:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`Route planner server: http://${HOST}:${PORT}`);
   console.log(`Export folder: ${ROUTE_ROOT}`);
   console.log(`Config file candidates: ${KEY_CANDIDATES.join(' | ')}`);
   const keys = readKeyFile();

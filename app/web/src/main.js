@@ -137,6 +137,15 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     });
     const refreshArchivedRoutes = archiveController.refresh;
     window.loadArchivedRoute = archiveController.load;
+    const accountCenter = window.AccountCenterController.create({
+      el,
+      localService,
+      escapeHtml,
+      escapeAttr,
+      toast,
+      loadRoute: archiveController.load
+    });
+    window.openAccountCenter = accountCenter.open;
     const pointEditor = window.PointEditorController.create({
       el,
       routeMap,
@@ -219,6 +228,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('saveBtn').onclick = saveRoute;
       el('refreshArchiveBtn').onclick = refreshArchivedRoutes;
       el('routeEditBtn').onclick = () => el('routeEditPanel').classList.toggle('open');
+      if (el('openAccountBtn')) el('openAccountBtn').onclick = () => accountCenter.open('routes');
       el('exportBtn').onclick = openExportModal;
       el('openRouteFolderBtn').onclick = () => {
         el('routeManageStatus').textContent = '导出目录：data/routes/';
@@ -378,7 +388,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         downloadCurrentRoute();
         return;
       }
-      el('exportRenderVideo').checked = false;
+      el('exportRenderVideo').checked = Boolean(localService.capabilities?.cloudExports);
       el('exportModal').classList.add('open');
       startExportModalPolling();
     }
@@ -791,6 +801,11 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           return;
         }
         if (!response.ok || !result.ok) throw new Error(result.message || '导出失败');
+        if (result.queued) {
+          toast(result.job?.render_video ? '全量导出已进入队列，视频会在后台生成。' : '导出任务已进入队列。');
+          await accountCenter.open('exports');
+          return;
+        }
         setLoading('导出完成', {percent: 100, detail: '完成'});
         const parts = ['JSON', 'MD', result.manualPdf ? 'PDF' : null, result.output ? 'MP4' : null].filter(Boolean).join(' + ');
         el('routeManageStatus').textContent = `已导出到：${result.dir}${result.manualPdf ? '；PDF：' + result.manualPdf : ''}${result.pdfError ? '；PDF 警告：' + result.pdfError : ''}`;
@@ -858,6 +873,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('exportBtn').onclick = openExportModal;
       el('saveBtn').onclick = saveRoute;
       el('routeEditBtn').onclick = () => el('routeEditPanel').classList.toggle('open');
+      if (el('openAccountBtn')) el('openAccountBtn').onclick = () => accountCenter.open('routes');
       el('routeSelect').onchange = selectRouteFromDropdown;
       el('routeNameInput').onchange = () => {
         el('routeSelect').value = el('routeNameInput').value;
@@ -889,6 +905,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (!localService.capabilities?.serverExport) {
         el('exportBtn').textContent = '下载';
         el('exportBtn').title = '下载当前路线 JSON';
+      } else if (localService.capabilities?.cloudExports) {
+        el('exportBtn').title = '后台生成路线文件、手册、PDF 和 MP4';
       }
       if (localService.capabilities?.editableMapConfig === false) {
         el('configBtn').hidden = true;

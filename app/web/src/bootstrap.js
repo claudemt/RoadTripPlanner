@@ -50,6 +50,7 @@ await import('./features/export/exportTaskController.js');
 await import('./features/map/routeMapController.js');
 await import('./features/search/placeSearchController.js');
 await import('./features/archive/archiveController.js');
+await import('./features/account/accountCenterController.js');
 await import('./features/point/pointEditorController.js');
 await import('./features/export/videoDataBuilder.js');
 

@@ -43,7 +43,8 @@
       mode: 'cloud',
       cloudRoutes: true,
       sharedScenes: true,
-      serverExport: false,
+      serverExport: true,
+      cloudExports: true,
       editableMapConfig: false,
     };
 
@@ -200,14 +201,89 @@
           return fail(error.message);
         }
       },
-      async exportRoute() {
-        return fail('网站版使用浏览器下载；PDF 和视频请使用本地高级版。', 501);
+      async listExports() {
+        const {data, error} = await supabase
+          .from('export_jobs')
+          .select('id,route_id,route_name,render_video,status,phase,message,progress,artifacts,error,created_at,started_at,completed_at,updated_at')
+          .order('created_at', {ascending: false});
+        if (error) return fail(error.message);
+        return {response: response(), data: {ok: true, exports: data || []}};
+      },
+      async exportRoute(payload) {
+        if (!userId) return fail('登录状态已失效，请重新登录。', 401);
+        const routeData = payload?.routeData || payload?.route;
+        if (!routeData?.id) return fail('缺少路线数据。', 400);
+        const requestPayload = {
+          routeData,
+          videoData: payload?.videoData || null,
+          renderVideo: payload?.renderVideo === true,
+          mapLayer: payload?.mapLayer || 'standard',
+        };
+        const {data, error} = await supabase
+          .from('export_jobs')
+          .insert({
+            user_id: userId,
+            route_id: routeData.id,
+            route_name: routeData.name || '未命名路线',
+            render_video: requestPayload.renderVideo,
+            request_payload: requestPayload,
+          })
+          .select('id,route_id,route_name,render_video,status,phase,message,progress,created_at')
+          .single();
+        if (error) return fail(error.message);
+        return {response: response(202), data: {ok: true, queued: true, job: data}};
       },
       async getExportProgress() {
-        return {response: response(), data: {ok: true, rendering: false, progress: null}};
+        const {data, error} = await supabase
+          .from('export_jobs')
+          .select('id,status,phase,message,progress,error,created_at,updated_at')
+          .in('status', ['queued', 'running', 'cancel_requested'])
+          .order('created_at', {ascending: false})
+          .limit(1)
+          .maybeSingle();
+        if (error) return fail(error.message);
+        if (!data) return {response: response(), data: {ok: true, rendering: false, progress: null}};
+        return {
+          response: response(),
+          data: {
+            ok: true,
+            rendering: true,
+            exportTaskId: data.id,
+            progress: {
+              active: true,
+              done: false,
+              phase: data.phase,
+              message: data.message,
+              percent: data.progress,
+              error: data.error,
+              updatedAt: data.updated_at,
+            },
+          },
+        };
       },
       async cancelExport() {
-        return {response: response(), data: {ok: true, cancelled: false}};
+        const {data: active, error: readError} = await supabase
+          .from('export_jobs')
+          .select('id,status')
+          .in('status', ['queued', 'running', 'cancel_requested'])
+          .order('created_at', {ascending: false})
+          .limit(1)
+          .maybeSingle();
+        if (readError) return fail(readError.message);
+        if (!active) return {response: response(), data: {ok: true, cancelled: false}};
+        if (active.status === 'cancel_requested') {
+          return {response: response(), data: {ok: true, cancelled: true}};
+        }
+        const {data: cancelled, error} = await supabase.rpc('request_export_cancel', {p_job_id: active.id});
+        if (error) return fail(error.message);
+        return {response: response(), data: {ok: true, cancelled: Boolean(cancelled)}};
+      },
+      async getExportArtifactUrl(objectPath, expiresIn = 3600) {
+        const {data, error} = await supabase.storage
+          .from('route-exports')
+          .createSignedUrl(objectPath, expiresIn, {download: false});
+        if (error) return fail(error.message);
+        return {response: response(), data: {ok: true, url: data.signedUrl}};
       },
     };
   }
