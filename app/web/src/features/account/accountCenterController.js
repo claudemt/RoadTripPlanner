@@ -14,34 +14,58 @@
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', {hour12: false});
   };
 
-  function create({el, localService, escapeHtml, escapeAttr, toast, loadRoute}) {
+  const views = {
+    routes: {
+      eyebrow: 'ROUTES',
+      title: '我的路线',
+      subtitle: '按最近更新时间排列，只显示当前账户保存的路线。',
+    },
+    exports: {
+      eyebrow: 'EXPORTS',
+      title: '导出文件',
+      subtitle: '查看后台生成进度，并打开路线图、手册、PDF 与 MP4。',
+    },
+    settings: {
+      eyebrow: 'ACCOUNT',
+      title: '账户设置',
+      subtitle: '管理当前登录状态和站点服务信息。',
+    },
+  };
+
+  function create({el, localService, runtime, escapeHtml, escapeAttr, toast, loadRoute}) {
     let refreshTimer = null;
     let activeView = 'routes';
 
     function setView(view) {
-      activeView = view === 'exports' ? 'exports' : 'routes';
+      activeView = views[view] ? view : 'routes';
       document.querySelectorAll('[data-account-view]').forEach((button) => {
         const selected = button.dataset.accountView === activeView;
         button.classList.toggle('active', selected);
-        button.setAttribute('aria-selected', String(selected));
+        if (selected) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
       });
       el('myRoutesView').hidden = activeView !== 'routes';
       el('myExportsView').hidden = activeView !== 'exports';
+      el('mySettingsView').hidden = activeView !== 'settings';
+      el('accountPageEyebrow').textContent = views[activeView].eyebrow;
+      el('accountPageTitle').textContent = views[activeView].title;
+      el('accountPageSubtitle').textContent = views[activeView].subtitle;
     }
 
     function renderRoutes(routes) {
       const list = el('myRoutesList');
       el('myRouteCount').textContent = String(routes.length);
       if (!routes.length) {
-        list.innerHTML = '<div class="account-empty">还没有保存路线。关闭此页后可直接新建第一条路线。</div>';
+        list.innerHTML = '<div class="account-empty">还没有保存路线。返回地图后可以新建第一条路线。</div>';
         return;
       }
       list.innerHTML = routes.map((route) => `
-        <article class="account-item">
+        <article class="account-item route-account-item">
           <div class="account-item-main">
             <strong>${escapeHtml(route.name || '未命名路线')}</strong>
-            <span>${formatTime(route.updatedAt || route.archivedAt)}</span>
+            <span>${Number(route.routeData?.days?.length || 0)} 天行程</span>
           </div>
+          <time class="account-item-time">${formatTime(route.updatedAt || route.archivedAt)}</time>
           <button class="small primary" data-load-route="${escapeAttr(route.safeName)}">打开</button>
         </article>
       `).join('');
@@ -78,6 +102,9 @@
               <span>${formatTime(job.created_at)} · ${job.render_video ? '全量导出（含 MP4）' : '文档导出'}</span>
             </div>
             <span class="export-state state-${escapeHtml(job.status)}">${statusLabels[job.status] || escapeHtml(job.status)}</span>
+            <div class="account-item-actions">
+              ${(job.artifacts || []).length ? artifactButtons(job) : '<span class="account-no-files">尚无文件</span>'}
+            </div>
             ${active ? `
               <div class="account-progress" aria-label="导出进度">
                 <span style="width:${progress}%"></span>
@@ -85,7 +112,6 @@
               <p class="account-item-message">${escapeHtml(job.message || job.phase || '处理中')} · ${progress}%</p>
             ` : ''}
             ${job.error ? `<p class="account-item-error">${escapeHtml(job.error)}</p>` : ''}
-            ${(job.artifacts || []).length ? `<div class="account-item-actions">${artifactButtons(job)}</div>` : ''}
           </article>
         `;
       }).join('');
@@ -137,22 +163,31 @@
     async function open(view = 'routes') {
       setView(view);
       el('accountCenter').classList.add('open');
+      el('accountCenter').setAttribute('aria-hidden', 'false');
+      document.body.classList.add('account-mode');
       await refresh();
       startPolling();
     }
 
     function close() {
       el('accountCenter').classList.remove('open');
+      el('accountCenter').setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('account-mode');
       stopPolling();
     }
+
+    const email = runtime?.user?.email || '当前账户';
+    el('accountProfileEmail').textContent = email;
+    el('accountSettingsEmail').textContent = email;
+    el('accountInitial').textContent = email.slice(0, 1).toUpperCase();
 
     document.querySelectorAll('[data-account-view]').forEach((button) => {
       button.onclick = () => setView(button.dataset.accountView);
     });
     el('accountCenterClose').onclick = close;
-    el('accountCenter').onclick = (event) => {
-      if (event.target === el('accountCenter')) close();
-    };
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && el('accountCenter').classList.contains('open')) close();
+    });
 
     return {open, close, refresh, setView};
   }

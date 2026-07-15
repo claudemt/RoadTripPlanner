@@ -16,6 +16,7 @@ function setBusy(busy) {
 
 function renderAccount(runtime, user) {
   const email = user?.email || (runtime.mode === 'local' ? '本地模式' : '访客预览');
+  document.body.classList.toggle('cloud-mode', runtime.mode === 'cloud');
   const emailElement = byId('accountEmail');
   if (emailElement) emailElement.textContent = email;
   const modeElement = byId('accountMode');
@@ -25,7 +26,10 @@ function renderAccount(runtime, user) {
 
   const signOutButton = byId('signOutBtn');
   const accountButton = byId('openAccountBtn');
-  if (accountButton) accountButton.hidden = runtime.mode !== 'cloud';
+  if (accountButton) {
+    accountButton.hidden = runtime.mode !== 'cloud';
+    accountButton.title = user?.email ? `个人工作台 · ${user.email}` : '个人工作台';
+  }
   if (!signOutButton) return;
   signOutButton.hidden = runtime.mode !== 'cloud';
   signOutButton.onclick = async () => {

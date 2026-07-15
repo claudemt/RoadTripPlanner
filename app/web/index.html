@@ -71,11 +71,10 @@
           <p id="accountMode">本地模式</p>
         </div>
         <div class="account">
-          <span id="accountEmail">正在连接</span>
-          <div class="account-actions">
-            <button id="openAccountBtn" type="button" hidden>我的</button>
-            <button id="signOutBtn" type="button" hidden>退出</button>
-          </div>
+          <span id="accountEmail" class="account-email">正在连接</span>
+          <button class="user-menu-button" id="openAccountBtn" type="button" aria-label="打开个人工作台" title="个人工作台" hidden>
+            <span class="user-menu-icon" aria-hidden="true"></span>
+          </button>
         </div>
       </div>
 
@@ -261,31 +260,109 @@
     </div>
   </div>
 
-  <div class="modal account-center" id="accountCenter" aria-label="我的">
-    <div class="account-center-shell">
-      <header class="account-center-head">
+  <section class="account-center" id="accountCenter" aria-label="个人工作台" aria-hidden="true">
+    <header class="account-page-header">
+      <div class="account-page-brand">
+        <span class="account-page-mark">R</span>
         <div>
-          <h2>我的路线与导出</h2>
-          <p>个人路线与已生成文件仅当前账户可见</p>
+          <strong>山河路书</strong>
+          <span>个人工作台</span>
         </div>
-        <button class="small" id="accountCenterClose" type="button">关闭</button>
-      </header>
-      <nav class="account-center-tabs" role="tablist" aria-label="个人空间分类">
-        <button class="active" data-account-view="routes" role="tab" aria-selected="true">
-          我的路线 <span id="myRouteCount">0</span>
-        </button>
-        <button data-account-view="exports" role="tab" aria-selected="false">
-          导出内容 <span id="myExportCount">0</span>
-        </button>
-      </nav>
-      <section class="account-center-view" id="myRoutesView">
-        <div class="account-list" id="myRoutesList"></div>
-      </section>
-      <section class="account-center-view" id="myExportsView" hidden>
-        <div class="account-list" id="myExportsList"></div>
-      </section>
+      </div>
+      <button class="account-map-return" id="accountCenterClose" type="button">
+        <span aria-hidden="true">←</span>
+        返回地图
+      </button>
+    </header>
+
+    <div class="account-page-layout">
+      <aside class="account-navigation">
+        <div class="account-identity">
+          <span class="account-avatar" id="accountInitial">U</span>
+          <strong id="accountProfileEmail">当前账户</strong>
+          <span>云端个人空间</span>
+        </div>
+        <nav aria-label="个人工作台导航">
+          <button class="active" data-account-view="routes" type="button" aria-current="page">
+            <span class="account-nav-index">01</span>
+            <span>我的路线</span>
+            <small id="myRouteCount">0</small>
+          </button>
+          <button data-account-view="exports" type="button">
+            <span class="account-nav-index">02</span>
+            <span>导出文件</span>
+            <small id="myExportCount">0</small>
+          </button>
+          <button data-account-view="settings" type="button">
+            <span class="account-nav-index">03</span>
+            <span>账户设置</span>
+          </button>
+        </nav>
+      </aside>
+
+      <main class="account-workspace">
+        <header class="account-workspace-head">
+          <p id="accountPageEyebrow">ROUTES</p>
+          <h2 id="accountPageTitle">我的路线</h2>
+          <span id="accountPageSubtitle">按最近更新时间排列，只显示当前账户保存的路线。</span>
+        </header>
+
+        <section class="account-center-view" id="myRoutesView">
+          <div class="account-list-head" aria-hidden="true">
+            <span>路线</span>
+            <span>最近更新</span>
+            <span>操作</span>
+          </div>
+          <div class="account-list" id="myRoutesList"></div>
+        </section>
+
+        <section class="account-center-view" id="myExportsView" hidden>
+          <div class="account-list-head export-list-head" aria-hidden="true">
+            <span>导出任务</span>
+            <span>状态</span>
+            <span>文件</span>
+          </div>
+          <div class="account-list" id="myExportsList"></div>
+        </section>
+
+        <section class="account-center-view account-settings" id="mySettingsView" hidden>
+          <div class="settings-section">
+            <h3>账户</h3>
+            <dl>
+              <div>
+                <dt>登录邮箱</dt>
+                <dd id="accountSettingsEmail">—</dd>
+              </div>
+              <div>
+                <dt>数据空间</dt>
+                <dd>个人路线与导出文件</dd>
+              </div>
+            </dl>
+          </div>
+          <div class="settings-section">
+            <h3>站点服务</h3>
+            <dl>
+              <div>
+                <dt>地图</dt>
+                <dd>高德地图 · 站点统一配置</dd>
+              </div>
+              <div>
+                <dt>共享内容</dt>
+                <dd>景点介绍与图片可由登录用户共同维护</dd>
+              </div>
+            </dl>
+          </div>
+          <div class="settings-danger-zone">
+            <div>
+              <strong>退出当前账户</strong>
+              <span>本机登录状态将被清除，云端内容不会删除。</span>
+            </div>
+            <button class="danger" id="signOutBtn" type="button" hidden>退出登录</button>
+          </div>
+        </section>
+      </main>
     </div>
-  </div>
+  </section>
 
   <div class="modal" id="exportModal">
     <div class="modal-card">

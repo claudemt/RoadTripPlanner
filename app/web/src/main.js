@@ -140,6 +140,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     const accountCenter = window.AccountCenterController.create({
       el,
       localService,
+      runtime,
       escapeHtml,
       escapeAttr,
       toast,
@@ -335,6 +336,13 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('setupKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
       el('setupSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
       const cloudManaged = localService.capabilities?.editableMapConfig === false;
+      const setupTitle = document.querySelector('#setupOverlay h2');
+      const setupIntro = document.querySelector('#setupOverlay header p');
+      if (setupTitle) setupTitle.textContent = cloudManaged ? '地图服务未就绪' : '配置高德地图';
+      if (setupIntro) setupIntro.textContent = cloudManaged
+        ? '网站地图由站点统一配置，普通用户无需填写 Key。'
+        : '填写高德 Web JS API Key 和安全密钥后加载地图。';
+      el('setupOverlay').classList.toggle('cloud-managed', cloudManaged);
       el('setupKeyInput').disabled = cloudManaged;
       el('setupSecurityInput').disabled = cloudManaged;
       el('setupSaveBtn').hidden = cloudManaged;
@@ -910,6 +918,13 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
       if (localService.capabilities?.editableMapConfig === false) {
         el('configBtn').hidden = true;
+        if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').hidden = true;
+        if (el('mapPlaceholder')) {
+          const title = el('mapPlaceholder').querySelector('strong');
+          const copy = el('mapPlaceholder').querySelector('p');
+          if (title) title.textContent = '地图服务未就绪';
+          if (copy) copy.textContent = '地图由站点统一配置，刷新后仍不可用时请联系站点管理员。';
+        }
       }
       if (localService.capabilities?.cloudRoutes) {
         el('newRouteTopBtn').title = '新建并保存到当前账户';
