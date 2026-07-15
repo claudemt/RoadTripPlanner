@@ -1,0 +1,15 @@
+{
+  "name": "road-trip-planner-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Amap-powered road trip planner workspace",
+  "workspaces": [
+    "video"
+  ],
+  "scripts": {
+    "start": "node server/route-render-server.js",
+    "dev": "node server/route-render-server.js",
+    "studio": "npm --workspace video run studio",
+    "typecheck": "npm --workspace video run typecheck"
+  }
+}

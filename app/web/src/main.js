@@ -1,0 +1,874 @@
+const STORAGE_KEY = 'tour-driving-route-planner:v3';
+    const ROUTE_COLORS = ['#1677ff', '#16a34a', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
+    const localService = window.LocalServiceClient.create();
+    const el = (id) => document.getElementById(id);
+
+    const defaultRoute = {
+      id: 'blank-route',
+      name: '我的自驾线路',
+      days: [
+        {
+          title: '第一天',
+          from: { name: '', lng: null, lat: null },
+          waypoints: [],
+          to: { name: '', lng: null, lat: null }
+        }
+      ]
+    };
+    const {
+      cleanDayTitle,
+      cleanRouteName,
+      dayLabel,
+      createBlankRoute,
+      isPointReady,
+      getDayPoints,
+      daySignature
+    } = window.RouteModel;
+    const normalizeRoute = (input) => window.RouteModel.normalizeRoute(input, defaultRoute.days);
+    const {
+      formatTripMetric,
+      fixed,
+      normalizeSpotName
+    } = window.FormatUtils;
+    const {escapeHtml, escapeAttr, escapeJsAttr} = window.HtmlUtils;
+    const routeRenderer = window.RouteRenderer.create({
+      el,
+      cleanRouteName,
+      cleanDayTitle,
+      dayLabel,
+      getDayPoints,
+      formatTripMetric,
+      fixed,
+      escapeHtml,
+      escapeAttr,
+      escapeJsAttr
+    });
+    const routeStore = window.RouteBookStore.create({
+      storageKey: STORAGE_KEY,
+      defaultRoute,
+      normalizeRoute
+    });
+    const feedback = window.FeedbackUi.create({el, localService});
+    const {
+      toast,
+      setLoading,
+      hideLoading,
+      startExportProgressPolling
+    } = feedback;
+    const scenicController = window.ScenicController.create({
+      el,
+      localService,
+      normalizeSpotName,
+      escapeHtml,
+      escapeAttr,
+      escapeJsAttr,
+      toast
+    });
+    const updateScenicImageList = scenicController.updateImageList;
+    const ensureScenicInfo = scenicController.ensureInfo;
+    const showSpotInfo = scenicController.showSpotInfo;
+    window.showSpotInfo = showSpotInfo;
+    window.openLightbox = scenicController.openLightbox;
+    const exportTasks = window.ExportTaskController.create({el, localService, toast});
+    const isExportActive = exportTasks.isActive;
+    const fetchExportTaskState = exportTasks.fetchState;
+    const renderExportTaskPanel = exportTasks.renderPanel;
+    const startExportModalPolling = exportTasks.startModalPolling;
+    const stopExportModalPolling = exportTasks.stopModalPolling;
+    const waitForExportIdle = exportTasks.waitForIdle;
+    const cancelCurrentExportTask = exportTasks.cancel;
+    const routeMap = window.RouteMapController.create({
+      routeColors: ROUTE_COLORS,
+      getDayPoints,
+      isPointReady,
+      escapeHtml
+    });
+    const placeSearch = window.PlaceSearchController.create({
+      el,
+      routeMap,
+      escapeHtml,
+      fixed,
+      toast
+    });
+    const onSearchInput = placeSearch.onInput;
+    const onSearchKeydown = placeSearch.onKeydown;
+    const closeSuggestions = placeSearch.closeSuggestions;
+    const searchPlace = placeSearch.searchPlace;
+    const setPointForm = placeSearch.setPointForm;
+    const resolveByKeyword = placeSearch.resolveByKeyword;
+    const reverseName = placeSearch.reverseName;
+
+    let routeBook = routeStore.load();
+    let route = routeStore.getActive(routeBook);
+    let currentMapLayer = localStorage.getItem('amap-planner-map-layer') || 'standard';
+    let segmentResults = [];
+    let currentRouteView = 'all';
+    let activeTabId = 'routePanel';
+    let jsonEditorDirty = true;
+    let jsonSyncTimer = null;
+    const archiveController = window.ArchiveController.create({
+      el,
+      localService,
+      routeStore,
+      normalizeRoute,
+      getDayPoints,
+      isPointReady,
+      daySignature,
+      cleanRouteName,
+      escapeHtml,
+      escapeJsAttr,
+      toast,
+      getState: () => ({routeBook, route, currentRouteView, segmentResults}),
+      setState: (patch) => {
+        if ('route' in patch) route = patch.route;
+        if ('currentRouteView' in patch) currentRouteView = patch.currentRouteView;
+        if ('segmentResults' in patch) segmentResults = patch.segmentResults;
+      },
+      saveRoute,
+      renderRouteSelect,
+      renderDays,
+      renderSummary,
+      syncEditor,
+      renderAll,
+      calculateRoute,
+      isMapReady: routeMap.isReady
+    });
+    const refreshArchivedRoutes = archiveController.refresh;
+    window.loadArchivedRoute = archiveController.load;
+    const pointEditor = window.PointEditorController.create({
+      el,
+      routeMap,
+      getDayPoints,
+      fixed,
+      toast,
+      scenicController,
+      placeSearch,
+      getRoute: () => route,
+      setView: (view) => { currentRouteView = view; },
+      clearSegments: () => { segmentResults = []; },
+      renderAll,
+      renderDaySelect,
+      setTab
+    });
+    const closePointEditor = pointEditor.close;
+    const confirmPointEdit = pointEditor.confirm;
+    window.openPointEditor = pointEditor.open;
+    window.testExistingPoint = pointEditor.testExistingPoint;
+    const videoDataBuilder = window.VideoDataBuilder.create({
+      routeColors: ROUTE_COLORS,
+      getDayPoints,
+      cleanDayTitle,
+      summarizeVideoDays
+    });
+
+    function loadAmap() {
+      return routeMap.load(window.AMAP_PLANNER_CONFIG);
+    }
+
+    async function initMap() {
+      el('mapPlaceholder')?.classList.remove('show');
+      closeSetupOverlay();
+      const mapEl = el('map');
+      if (mapEl) {
+        mapEl.style.display = 'block';
+        mapEl.style.height = '100%';
+        mapEl.style.width = '100%';
+      }
+      await routeMap.createMap('map', {
+        zoom: 5,
+        center: [104.2, 35.8],
+      }, (point) => {
+        if (!pointEditor.isMapClickEnabled()) return;
+        reverseName(point.lng, point.lat).then((name) => {
+          setPointForm(name, point.lng, point.lat);
+          toast('已从地图点击位置取点。');
+        });
+      });
+      setMapLayer(currentMapLayer);
+
+      el('mapPlaceholder')?.classList.remove('show');
+      closeSetupOverlay();
+      bindEvents();
+      renderAll(false);
+      toast('地图已就绪，正在扫描 data/routes/ 路线…');
+      const readyPoints = route.days.some((day) => getDayPoints(day).map((x) => x.point).filter(isPointReady).length >= 2);
+      if (readyPoints) {
+        try {
+          renderAll(true);
+          calculateRoute();
+        } catch (error) {
+          toast(`路线“${route.name || ''}”存在无法绘制的坐标：${error.message}`);
+        }
+      } else {
+        renderAll(false);
+        toast('地图已就绪。请从下拉框选择路线，或添加起点终点后点“刷新”。');
+      }
+    }
+
+    function bindEvents() {
+      document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.onclick = () => setTab(btn.dataset.tab);
+      });
+      if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').onclick = () => openSetupOverlay();
+      if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
+      if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
+      el('calcBtn').onclick = calculateRoute;
+      el('saveBtn').onclick = saveRoute;
+      el('refreshArchiveBtn').onclick = refreshArchivedRoutes;
+      el('routeEditBtn').onclick = () => el('routeEditPanel').classList.toggle('open');
+      el('exportBtn').onclick = openExportModal;
+      el('openRouteFolderBtn').onclick = () => {
+        el('routeManageStatus').textContent = '导出目录：data/routes/';
+        toast('导出目录已显示。');
+      };
+      el('newRouteTopBtn').onclick = newRoute;
+      el('mapLayerSelect').value = currentMapLayer;
+      el('mapLayerSelect').onchange = () => setMapLayer(el('mapLayerSelect').value);
+      el('mapLayerBtn').onclick = () => {
+        const order = ['standard', 'satellite', 'hybrid'];
+        const next = order[(order.indexOf(currentMapLayer) + 1) % order.length];
+        el('mapLayerSelect').value = next;
+        setMapLayer(next);
+        toast(`地图类型：${next === 'standard' ? '标准' : next === 'satellite' ? '卫星' : '卫星+道路'}`);
+      };
+      el('configBtn').onclick = openConfigModal;
+      el('configCloseBtn').onclick = () => el('configModal').classList.remove('open');
+      el('saveConfigBtn').onclick = saveAmapConfig;
+      el('testConfigBtn').onclick = testAmapConfig;
+      bindExportModal();
+      el('spotCloseBtn').onclick = scenicController.closeSpotPanel;
+      el('imageLightbox').onclick = scenicController.closeLightbox;
+      el('resetBtn').onclick = () => {
+        if (!confirm('确认清空为空白路线？当前未导出的修改会丢失。')) return;
+        const blank = createBlankRoute(route.name || '我的自驾线路');
+        routeBook = { activeRouteId: blank.id, routes: [normalizeRoute(blank)] };
+        route = routeStore.getActive(routeBook);
+        currentRouteView = 'all';
+        segmentResults = [];
+        saveRoute(false);
+        renderAll(false);
+        if (routeMap.isReady()) calculateRoute();
+        toast('已清空为空白路线。');
+      };
+      el('applyJsonBtn').onclick = applyJson;
+      el('routeSelect').onchange = selectRouteFromDropdown;
+      el('routeNameInput').onchange = () => {
+        el('routeSelect').value = el('routeNameInput').value;
+        selectRouteFromDropdown();
+      };
+      el('renameRouteBtn').onclick = () => {
+        if (!renameCurrentRoute()) return;
+        saveRoute(true);
+        renderAll(false);
+      };
+      el('deleteRouteBtn').onclick = deleteCurrentRoute;
+      el('routeViewSelect').onchange = () => {
+        currentRouteView = el('routeViewSelect').value;
+        renderDays();
+        renderMarkersAndSegments(true);
+      };
+      el('pointSearchBtn').onclick = searchPlace;
+      el('pointSearchInput').addEventListener('input', onSearchInput);
+      el('pointSearchInput').addEventListener('keydown', onSearchKeydown);
+      el('pointScenicImages').onchange = updateScenicImageList;
+      el('pointConfirmBtn').onclick = confirmPointEdit;
+      el('pointCancelBtn').onclick = closePointEditor;
+      el('pointModalClose').onclick = closePointEditor;
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-wrap')) closeSuggestions();
+        scenicController.handleOutsideClick(e.target);
+      });
+      el('addDayBtn').onclick = addDay;
+      el('resolveAllBtn').onclick = resolveAllNames;
+      el('useMapClickBtn').onclick = pointEditor.toggleMapClick;
+    }
+
+    function setTab(tabId) {
+      activeTabId = tabId;
+      document.querySelectorAll('.tab-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
+      document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === tabId));
+      if (tabId === 'codePanel') syncEditor(true);
+    }
+
+    function selectRouteFromDropdown() {
+      const value = el('routeSelect').value;
+      if (value.startsWith('archive:')) return loadArchivedRoute(value.slice(8));
+      routeBook.activeRouteId = value;
+      route = routeStore.getActive(routeBook);
+      currentRouteView = 'all';
+      segmentResults = [];
+      renderAll(true);
+      if (routeMap.isReady()) calculateRoute();
+    }
+
+    function renameCurrentRoute() {
+      const next = prompt('路线名称', cleanRouteName(route.name) || '未命名线路');
+      if (next === null) return false;
+      route.name = cleanRouteName(next) || route.name || '未命名线路';
+      return true;
+    }
+
+    function setMapLayer(layer) {
+      currentMapLayer = layer || 'standard';
+      localStorage.setItem('amap-planner-map-layer', currentMapLayer);
+      routeMap.setLayer(currentMapLayer);
+    }
+
+    function hasAmapConfig() {
+      return Boolean((window.AMAP_PLANNER_CONFIG?.key || '').trim() && (window.AMAP_PLANNER_CONFIG?.securityJsCode || '').trim());
+    }
+
+    function openSetupOverlay(message) {
+      el('setupKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
+      el('setupSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
+      el('setupStatus').textContent = message || '配置会写入浏览器，并同步到 data/config/local.env（gitignore，不会进 GitHub）。';
+      el('setupOverlay').classList.add('open');
+      el('mapPlaceholder')?.classList.add('show');
+    }
+
+    function closeSetupOverlay() {
+      el('setupOverlay').classList.remove('open');
+    }
+
+    function openConfigModal() {
+      el('amapKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
+      el('amapSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
+      el('configStatus').textContent = '保存后页面会重新加载高德地图。密钥只存在本机浏览器。';
+      el('configModal').classList.add('open');
+    }
+
+    function bindExportModal() {
+      if (!el('exportModal')) return;
+      el('exportCancelBtn').onclick = closeExportModal;
+      el('exportCancelBtn2').onclick = closeExportModal;
+      el('exportStopBtn').onclick = () => cancelCurrentExportTask();
+      el('exportConfirmBtn').onclick = async () => {
+        const renderVideo = Boolean(el('exportRenderVideo').checked);
+        try {
+          const state = await fetchExportTaskState();
+          if (isExportActive(state)) {
+            if (!confirm('已有导出任务正在进行。要终止它并开始新的导出吗？')) return;
+            await cancelCurrentExportTask({silent: true});
+            await waitForExportIdle();
+          }
+        } catch (error) {
+          toast('读取导出任务失败：' + error.message);
+          return;
+        }
+        closeExportModal();
+        exportCurrentRoute({renderVideo});
+      };
+    }
+
+    function openExportModal() {
+      el('exportRenderVideo').checked = false;
+      el('exportModal').classList.add('open');
+      startExportModalPolling();
+    }
+
+    function closeExportModal() {
+      el('exportModal').classList.remove('open');
+      stopExportModalPolling();
+    }
+
+    async function saveAmapConfigFromInputs(keyId, securityId, statusId) {
+      const key = el(keyId).value.trim();
+      const securityJsCode = el(securityId).value.trim();
+      if (!key || !securityJsCode) {
+        if (statusId) el(statusId).textContent = '请填写 Key 和安全密钥。';
+        return toast('请填写 Key 和安全密钥。');
+      }
+      localStorage.setItem('amap-planner-config', JSON.stringify({ key, securityJsCode }));
+      window.AMAP_PLANNER_CONFIG = { key, securityJsCode };
+      window._AMapSecurityConfig = { securityJsCode };
+      if (statusId) el(statusId).textContent = '已保存，正在同步并加载地图…';
+      try {
+        await localService.saveConfig({ key, securityJsCode });
+      } catch (_) {}
+      toast('配置已保存，正在刷新…');
+      if (location.protocol === 'file:') {
+        location.href = 'http://127.0.0.1:6137/';
+        return;
+      }
+      location.reload();
+    }
+
+    function saveAmapConfig() {
+      saveAmapConfigFromInputs('amapKeyInput', 'amapSecurityInput', 'configStatus');
+    }
+
+    function testAmapConfigFromInputs(keyId, securityId, statusId) {
+      const statusEl = statusId ? el(statusId) : null;
+      const key = el(keyId).value.trim();
+      const securityJsCode = el(securityId).value.trim();
+      if (!key || !securityJsCode) {
+        if (statusEl) statusEl.textContent = '请先填写 Key 和安全密钥。';
+        return;
+      }
+      if (statusEl) statusEl.textContent = '正在测试 Key…';
+      // Temporary apply for test if map already loaded with different key, still reload for full test.
+      if (!routeMap.isReady() || window.AMAP_PLANNER_CONFIG?.key !== key) {
+        if (statusEl) statusEl.textContent = '请先点“保存并加载地图”，加载成功后再测试搜索。也可直接保存。';
+        return;
+      }
+      routeMap.testSearch('天安门').then((ok) => {
+        if (statusEl) {
+          statusEl.textContent = ok
+            ? '连接成功：可以搜索地点和获取坐标。'
+            : '连接失败：高德没有返回 POI，请检查 Key、服务权限和安全密钥。';
+        }
+      });
+    }
+
+    function testAmapConfig() {
+      testAmapConfigFromInputs('amapKeyInput', 'amapSecurityInput', 'configStatus');
+    }
+
+    function saveRoute(showToast = true) {
+      try {
+        routeBook.activeRouteId = route.id;
+        routeStore.save(routeBook);
+        syncEditor();
+        if (showToast) toast('已保存到浏览器（未导出到 data/routes/）。');
+      } catch (err) {
+        toast('保存失败：' + err.message);
+      }
+    }
+
+    function newRoute() {
+      const name = prompt('新线路名称', '新线路');
+      if (name === null) return;
+      const next = normalizeRoute(createBlankRoute(name.trim() || '新线路'));
+      routeBook.routes.push(next);
+      routeBook.activeRouteId = next.id;
+      route = next;
+      currentRouteView = 'all';
+      segmentResults = [];
+      saveRoute(false);
+      renderAll(true);
+      toast('已新建空白路线（仅浏览器）。规划好后请点“导出”写入 data/routes/。');
+    }
+
+    function deleteCurrentRoute() {
+      if (routeBook.routes.length <= 1) return toast('至少保留一条线路。');
+      if (!confirm(`删除线路“${route.name}”？`)) return;
+      routeBook.routes = routeBook.routes.filter((r) => r.id !== route.id);
+      routeBook.activeRouteId = routeBook.routes[0].id;
+      route = routeStore.getActive(routeBook);
+      currentRouteView = 'all';
+      segmentResults = [];
+      saveRoute(false);
+      renderAll(true);
+    }
+
+    function syncEditor(force = false) {
+      jsonEditorDirty = true;
+      if (activeTabId !== 'codePanel') return;
+      if (jsonSyncTimer) clearTimeout(jsonSyncTimer);
+      if (force) {
+        jsonSyncTimer = null;
+        syncEditorNow(true);
+        return;
+      }
+      jsonSyncTimer = setTimeout(() => {
+        jsonSyncTimer = null;
+        syncEditorNow(false);
+      }, 0);
+    }
+
+    function syncEditorNow(force = false) {
+      const editor = el('jsonEditor');
+      if (!editor || activeTabId !== 'codePanel') return;
+      if (!force && !jsonEditorDirty) return;
+      if (!force && document.activeElement === editor) return;
+      editor.value = JSON.stringify(getEditableRoute(route), null, 2);
+      jsonEditorDirty = false;
+    }
+
+    function getEditableRoute(input) {
+      const next = normalizeRoute(structuredClone(input || route));
+      return {
+        id: next.id,
+        name: next.name,
+        days: next.days.map((day) => ({
+          title: cleanDayTitle(day.title),
+          from: day.from,
+          waypoints: day.waypoints,
+          to: day.to
+        }))
+      };
+    }
+
+    function applyJson() {
+      try {
+        const parsed = JSON.parse(el('jsonEditor').value);
+        if (!parsed.segmentCache && route?.segmentCache) parsed.segmentCache = route.segmentCache;
+        route = normalizeRoute(parsed);
+        const idx = routeBook.routes.findIndex((r) => r.id === route.id);
+        if (idx >= 0) routeBook.routes[idx] = route;
+        else routeBook.routes.push(route);
+        routeBook.activeRouteId = route.id;
+        segmentResults = [];
+        renderAll(false);
+        calculateRoute();
+        toast('已应用 JSON 路线。');
+      } catch (err) {
+        toast('JSON 格式有误：' + err.message);
+      }
+    }
+
+    function renderAll(fit = true) {
+      route = normalizeRoute(route);
+      renderRouteSelect();
+      renderDaySelect();
+      renderSummary();
+      renderDays();
+      renderMarkersAndSegments(fit);
+      syncEditor();
+    }
+
+    function renderRouteSelect() {
+      routeRenderer.renderRouteSelect({
+        routeBook,
+        route,
+        archivedRoutes: archiveController.getRoutes()
+      });
+    }
+
+    function renderDaySelect() {
+      currentRouteView = routeRenderer.renderDaySelect({route, currentRouteView});
+    }
+
+    function renderSummary() {
+      routeRenderer.renderSummary({route, segmentResults});
+    }
+
+    function renderDays() {
+      routeRenderer.renderDays({route, segmentResults, currentRouteView});
+    }
+
+    function renderMarkersAndSegments(fit = true) {
+      routeMap.render({
+        route,
+        segmentResults,
+        currentRouteView,
+        fit,
+        onMarkerClick: ({item, dayIndex}) => {
+          el('daySelect').value = String(dayIndex);
+          setPointForm(item.point.name, item.point.lng, item.point.lat);
+          showSpotInfo(item.point.name);
+        }
+      });
+    }
+
+    async function calculateRoute() {
+      if (!routeMap.isReady()) {
+        openSetupOverlay('请先配置并加载高德地图，再计算路线。');
+        return toast('请先完成高德配置。');
+      }
+      route = normalizeRoute(route);
+      if (!route.days.length) return;
+      setLoading('正在计算路线…');
+      try {
+        route.segmentCache = route.segmentCache || {};
+        if (!Array.isArray(segmentResults) || segmentResults.length !== route.days.length) {
+          segmentResults = route.days.map((_, dayIndex) => ({ segments: route.segmentCache[dayIndex]?.segments || [] }));
+        }
+        const targetDays = currentRouteView === 'all'
+          ? route.days.map((_, i) => i)
+          : [Number(currentRouteView)];
+        for (const dayIndex of targetDays) {
+          if (!route.days[dayIndex]) continue;
+          const signature = daySignature(route.days[dayIndex]);
+          const cached = route.segmentCache[dayIndex];
+          if (cached && cached.signature === signature && Array.isArray(cached.segments)) {
+            segmentResults[dayIndex] = { segments: cached.segments };
+            continue;
+          }
+          const segments = await routeMap.calculateDaySegments(route.days[dayIndex]);
+          segmentResults[dayIndex] = { segments };
+          route.segmentCache[dayIndex] = { signature, segments, updatedAt: new Date().toISOString() };
+        }
+        renderAll(true);
+        saveRoute(false);
+        setTab('routePanel');
+        toast(currentRouteView === 'all' ? '全程路线计算完成。' : '当天路线计算完成。');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    function addDay() {
+      const last = route.days[route.days.length - 1];
+      route.days.push({
+        title: `第 ${route.days.length + 1} 天`,
+        from: structuredClone(last.to),
+        waypoints: [],
+        to: { name: '新住宿/终点', lng: last.to.lng + 0.2, lat: last.to.lat + 0.2 }
+      });
+      segmentResults = [];
+      currentRouteView = String(route.days.length - 1);
+      renderAll(true);
+      toast('已新增一天。');
+    }
+
+    async function resolveAllNames() {
+      if (!confirm('按名称重新识别所有点位坐标？这会覆盖当前坐标。')) return;
+      setLoading('正在用高德识别坐标…');
+      try {
+        for (const day of route.days) {
+          const points = [day.from, ...day.waypoints, day.to];
+          for (const point of points) {
+            try {
+              const next = await resolveByKeyword(point.name.replace(/（.*?）|\(.*?\)/g, ''));
+              point.lng = next.lng;
+              point.lat = next.lat;
+            } catch (_) {
+              // 保留原坐标
+            }
+          }
+        }
+        segmentResults = [];
+        renderAll(true);
+        toast('坐标重识别完成；个别失败点已保留原坐标。');
+      } finally {
+        hideLoading();
+      }
+    }
+
+    window.renameDay = function(dayIndex, value) {
+      if (route.days[dayIndex]) route.days[dayIndex].title = cleanDayTitle(value) || `第 ${dayIndex + 1} 天`;
+      renderDaySelect();
+      syncEditor();
+      saveRoute(false);
+    };
+
+    window.renameDayPrompt = function(dayIndex) {
+      const day = route.days[dayIndex];
+      if (!day) return;
+      const next = prompt(`D${dayIndex + 1} 名称`, cleanDayTitle(day.title) || `第 ${dayIndex + 1} 天`);
+      if (next === null) return;
+      renameDay(dayIndex, next);
+      renderDays();
+      saveRoute(false);
+    };
+
+    window.moveWaypoint = function(dayIndex, waypointIndex, delta) {
+      const list = route.days[dayIndex]?.waypoints;
+      if (!list) return;
+      const nextIndex = waypointIndex + delta;
+      if (nextIndex < 0 || nextIndex >= list.length) return;
+      [list[waypointIndex], list[nextIndex]] = [list[nextIndex], list[waypointIndex]];
+      segmentResults = [];
+      renderAll(true);
+    };
+
+    window.deleteWaypoint = function(dayIndex, waypointIndex) {
+      const list = route.days[dayIndex]?.waypoints;
+      if (!list) return;
+      list.splice(waypointIndex, 1);
+      segmentResults = [];
+      renderAll(true);
+    };
+
+    window.deleteDay = function(dayIndex) {
+      if (route.days.length <= 1) return toast('至少保留一天行程。');
+      route.days.splice(dayIndex, 1);
+      segmentResults = [];
+      renderAll(true);
+    };
+
+    async function loadConfigFromServer() {
+      try {
+        const { response, data } = await localService.getConfig();
+        if (!response.ok || !data?.ok) return null;
+        return data;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function ensureServiceOrExplain() {
+      try {
+        const { response, data } = await localService.health();
+        return Boolean(response.ok && data?.ok);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function buildVideoData() {
+      const missing = route.days.some((day, i) => {
+        const expected = getDayPoints(day).length - 1;
+        return !segmentResults[i] || !segmentResults[i].segments || segmentResults[i].segments.length < expected;
+      });
+      if (missing) {
+        if (!confirm('还有天数没有计算路线。是否先计算全程再导出 MP4 数据？')) return;
+        const oldView = currentRouteView;
+        currentRouteView = 'all';
+        await calculateRoute();
+        currentRouteView = oldView;
+        renderDaySelect();
+      }
+      return videoDataBuilder.build({
+        route,
+        segmentResults,
+        currentMapLayer,
+        ensureScenicInfo
+      });
+    }
+
+    async function exportCurrentRoute({renderVideo = false} = {}) {
+      startExportProgressPolling();
+      try {
+        saveRoute(false);
+        const videoData = await buildVideoData();
+        setLoading('正在上传导出数据…', {percent: 8, detail: '准备'});
+        const { response, data: result } = await localService.exportRoute({
+          routeData: route,
+          videoData,
+          renderVideo,
+          mapLayer: currentMapLayer,
+          config: {
+            key: window.AMAP_PLANNER_CONFIG?.key || '',
+            securityJsCode: window.AMAP_PLANNER_CONFIG?.securityJsCode || ''
+          }
+        });
+        if (response.status === 409 && result?.code === 'EXPORT_RUNNING') {
+          renderExportTaskPanel({rendering: true, progress: result.progress || {}});
+          openExportModal();
+          toast('已有导出任务，可终止后重新导出。');
+          return;
+        }
+        if (response.status === 409 && result?.code === 'EXPORT_CANCELLED') {
+          toast('导出已终止。');
+          return;
+        }
+        if (!response.ok || !result.ok) throw new Error(result.message || '导出失败');
+        setLoading('导出完成', {percent: 100, detail: '完成'});
+        const parts = ['JSON', 'MD', result.manualPdf ? 'PDF' : null, result.output ? 'MP4' : null].filter(Boolean).join(' + ');
+        el('routeManageStatus').textContent = `已导出到：${result.dir}${result.manualPdf ? '；PDF：' + result.manualPdf : ''}${result.pdfError ? '；PDF 警告：' + result.pdfError : ''}`;
+        toast(result.pdfError ? `已导出 ${parts}（PDF 失败：${result.pdfError}）` : `已导出：${parts}`);
+        await refreshArchivedRoutes();
+      } catch (error) {
+        toast('导出失败：' + error.message);
+      } finally {
+        setTimeout(hideLoading, 500);
+      }
+    }
+
+    function isMostlyBlankRoute(r) {
+      return routeStore.isMostlyBlank(r);
+    }
+
+    function summarizeVideoDays(days) {
+      let totalDistance = 0;
+      let totalDuration = 0;
+      const lngs = [];
+      const lats = [];
+      days.forEach((day) => {
+        day.segments.forEach((seg) => {
+          totalDistance += seg.distance || 0;
+          totalDuration += seg.duration || 0;
+          (seg.path || []).forEach(([lng, lat]) => { lngs.push(lng); lats.push(lat); });
+        });
+        day.points.forEach((p) => { lngs.push(p.lng); lats.push(p.lat); });
+      });
+      return {
+        dayCount: days.length,
+        totalDistance,
+        totalDuration,
+        bounds: [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)]
+      };
+    }
+
+    function bootstrapUiWithoutMap() {
+      // Allow configuring before map is ready.
+      el('configBtn').onclick = openConfigModal;
+      el('configCloseBtn').onclick = () => el('configModal').classList.remove('open');
+      el('saveConfigBtn').onclick = saveAmapConfig;
+      el('testConfigBtn').onclick = testAmapConfig;
+      bindExportModal();
+      if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').onclick = () => openSetupOverlay();
+      if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
+      if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
+      el('newRouteTopBtn').onclick = newRoute;
+      el('exportBtn').onclick = openExportModal;
+      el('saveBtn').onclick = saveRoute;
+      el('routeEditBtn').onclick = () => el('routeEditPanel').classList.toggle('open');
+      el('routeSelect').onchange = selectRouteFromDropdown;
+      el('routeNameInput').onchange = () => {
+        el('routeSelect').value = el('routeNameInput').value;
+        selectRouteFromDropdown();
+      };
+      el('addDayBtn').onclick = addDay;
+      el('renameRouteBtn').onclick = () => {
+        if (!renameCurrentRoute()) return;
+        saveRoute(true);
+        renderAll(false);
+      };
+      el('routeViewSelect').onchange = () => {
+        currentRouteView = el('routeViewSelect').value;
+        renderDays();
+        renderMarkersAndSegments(true);
+      };
+      el('deleteRouteBtn').onclick = deleteCurrentRoute;
+      el('resetBtn').onclick = () => {
+        if (!confirm('确认清空为空白路线？当前未导出的修改会丢失。')) return;
+        const blank = createBlankRoute(route.name || '我的自驾线路');
+        routeBook = { activeRouteId: blank.id, routes: [normalizeRoute(blank)] };
+        route = routeStore.getActive(routeBook);
+        currentRouteView = 'all';
+        segmentResults = [];
+        saveRoute(false);
+        renderAll(false);
+        toast('已清空为空白路线。');
+      };
+      renderAll(false);
+    }
+
+    async function startApp() {
+      bootstrapUiWithoutMap();
+
+      if (location.protocol === 'file:') {
+        const up = await ensureServiceOrExplain();
+        if (up) {
+          location.href = 'http://127.0.0.1:6137/';
+          return;
+        }
+        openSetupOverlay('请先双击根目录 start.bat 启动本地服务。仅直接打开 app/web/index.html 时无法读取 data/routes/ 与本地密钥。');
+        el('mapPlaceholder').classList.add('show');
+        el('mapPlaceholder').innerHTML = '<strong>需要本地服务</strong><p>请先运行根目录 <code>start.bat</code>，浏览器会打开 http://127.0.0.1:6137 。启动后自动加载地图并扫描 data/routes/。</p><button class="primary" id="retryServerBtn">我已启动，重试</button>';
+        const retry = el('retryServerBtn');
+        if (retry) retry.onclick = () => location.reload();
+        return;
+      }
+
+      const remote = await loadConfigFromServer();
+      if (remote?.configured && remote.key && remote.securityJsCode) {
+        localStorage.setItem('amap-planner-config', JSON.stringify({ key: remote.key, securityJsCode: remote.securityJsCode }));
+        window.AMAP_PLANNER_CONFIG = { key: remote.key, securityJsCode: remote.securityJsCode };
+        window._AMapSecurityConfig = { securityJsCode: remote.securityJsCode };
+      }
+
+      await refreshArchivedRoutes({autoSelectFirst: isMostlyBlankRoute(route)});
+
+      if (!hasAmapConfig()) {
+        openSetupOverlay('第一次使用：请配置高德 Web JS API Key 与安全密钥。保存后写入 data/config/local.env，并加载交互地图。');
+        return;
+      }
+
+      try {
+        el('mapPlaceholder')?.classList.remove('show');
+        el('setupStatus') && (el('setupStatus').textContent = '正在加载高德地图…');
+        await loadAmap();
+        await initMap();
+        toast('地图加载成功');
+      } catch (error) {
+        el('mapPlaceholder')?.classList.add('show');
+        openSetupOverlay((error && error.message ? error.message + '。' : '') + '请检查 Key、安全密钥、网络与域名白名单（127.0.0.1 / localhost）。配置文件：data/config/local.env');
+        toast('高德地图加载失败，请重新配置。');
+      }
+    }
+
+    startApp();

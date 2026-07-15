@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>自驾路线规划器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="header">
+        <h1>自驾路线规划器</h1>
+      </div>
+
+      <div class="toolbar top-toolbar">
+        <button class="primary" id="calcBtn">刷新</button>
+        <button id="newRouteTopBtn" title="新建空白路线（先存在浏览器，点导出才写入 data/routes/）">新建</button>
+        <button class="primary" id="exportBtn" title="导出到 route 目录：JSON + MD + PDF + MP4（未导出前只在浏览器）">导出</button>
+        <button id="mapLayerBtn" title="地图类型：标准/卫星/混合">类型</button>
+        <button id="configBtn">配置</button>
+        <select id="mapLayerSelect" title="地图类型" hidden>
+          <option value="standard">标准</option>
+          <option value="satellite">卫星</option>
+          <option value="hybrid">混合</option>
+        </select>
+      </div>
+
+      <div class="route-strip">
+        <div class="route-combo">
+          <select id="routeSelect" title="选择当前浏览器路线，或载入已导出到 data/routes/ 的路线"></select>
+          <select id="routeViewSelect" title="查看范围"></select>
+        </div>
+        <button class="small" id="routeEditBtn">编辑</button>
+      </div>
+      <div class="route-edit-panel" id="routeEditPanel">
+        <div class="route-edit-grid">
+          <select id="routeNameInput" title="已有路线"></select>
+          <button id="addDayBtn" class="primary">添</button>
+          <button id="renameRouteBtn">改</button>
+          <button id="deleteRouteBtn" class="danger">删</button>
+        </div>
+        <div class="route-edit-actions" style="display:none">
+          <button id="saveBtn"></button>
+          <button id="resolveAllBtn"></button>
+          <button id="refreshArchiveBtn"></button>
+          <button id="openRouteFolderBtn"></button>
+          <button class="danger" id="resetBtn"></button>
+        </div>
+        <div class="hint" id="routeManageStatus" style="display:none"></div>
+        <div class="archive-list" id="archiveList"></div>
+      </div>
+
+      <div class="content">
+        <div class="tab-panel active" id="routePanel">
+          <div class="summary-compact" style="display:none">
+            <span id="sumDays">0天</span><span id="sumMetric">0km/0min</span>
+          </div>
+          <div id="daysList"></div>
+        </div>
+
+        <div class="tab-panel" id="codePanel">
+        <div class="card editor-wrap open" id="editorWrap">
+          <div class="card-title">
+            <span>路线JSON</span>
+            <div>
+              <button class="small primary" id="applyJsonBtn">应用</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <textarea id="jsonEditor" spellcheck="false"></textarea>
+          </div>
+        </div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="app-shell">
+      <main id="map"></main>
+      <div class="map-placeholder show" id="mapPlaceholder">
+        <strong>地图未加载</strong>
+        <p>启动本地服务并配置高德 Key 后显示地图。</p>
+        <button class="primary" id="openSetupFromMapBtn">配置高德 Key</button>
+      </div>
+    </div>
+  </div>
+
+  <aside class="spot-panel" id="spotPanel">
+    <div class="spot-head">
+      <span id="spotTitle">景点介绍</span>
+      <button class="small" id="spotCloseBtn">关闭</button>
+    </div>
+    <div class="spot-body" id="spotBody"></div>
+  </aside>
+
+  <div class="image-lightbox" id="imageLightbox">
+    <img id="lightboxImage" alt="景点图片" />
+  </div>
+
+  <div class="modal" id="pointModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong id="pointModalTitle">选择地点</strong>
+        <button class="small" id="pointModalClose">关闭</button>
+      </div>
+      <div class="modal-body">
+        <label>输入地点，选择高德匹配项</label>
+        <div class="search-row">
+          <div class="search-wrap">
+            <input id="pointSearchInput" placeholder="如：扎尕那、拉卜楞寺、兰州中川机场" autocomplete="off" />
+            <div id="suggestions" class="suggestions"></div>
+          </div>
+          <button id="pointSearchBtn">搜索</button>
+        </div>
+        <div class="form-grid">
+          <div>
+            <label>确认名称</label>
+            <input id="pointName" placeholder="选择匹配项后自动填入" />
+          </div>
+          <div>
+            <label>坐标（少数情况手动改）</label>
+            <input id="pointLngLat" placeholder="lng,lat" />
+          </div>
+        </div>
+        <div class="scenic-editor">
+          <label>景点介绍（可选，会保存到 data/scenes/）</label>
+          <textarea id="pointScenicDescription" placeholder="输入这个地点的介绍、游玩提示、特色等"></textarea>
+          <input id="pointScenicImages" type="file" accept="image/*" multiple />
+          <div class="scenic-image-list" id="pointScenicImageList">未选择图片</div>
+        </div>
+        <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">
+          <button class="primary" id="pointConfirmBtn">确定</button>
+          <button id="useMapClickBtn">地图点选：关</button>
+          <button id="pointCancelBtn">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="setup-overlay" id="setupOverlay">
+    <div class="setup-card">
+      <header>
+        <h2>配置高德地图</h2>
+        <p>填写高德 Web JS API Key 和安全密钥后加载地图。</p>
+      </header>
+      <div class="setup-body">
+        <ol class="setup-steps">
+          <li>打开 <a href="https://console.amap.com/" target="_blank" rel="noreferrer">高德开放平台控制台</a></li>
+          <li>创建「Web端(JS API)」应用，获取 Key</li>
+          <li>在安全密钥中设置并复制 securityJsCode</li>
+          <li>将本机域名/地址加入白名单：<code>127.0.0.1</code>、<code>localhost</code></li>
+        </ol>
+        <div class="form-grid">
+          <div>
+            <label>Web JS API Key</label>
+            <input id="setupKeyInput" placeholder="粘贴你的 Key" autocomplete="off" />
+          </div>
+          <div>
+            <label>安全密钥 securityJsCode</label>
+            <input id="setupSecurityInput" placeholder="粘贴你的安全密钥" autocomplete="off" />
+          </div>
+        </div>
+        <div class="setup-actions">
+          <button class="primary" id="setupSaveBtn">保存并加载地图</button>
+          <button id="setupTestBtn">测试连接</button>
+        </div>
+        <div class="hint" id="setupStatus">配置会写入浏览器，并同步到 data/config/local.env（gitignore，不会进 GitHub）。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="configModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong>高德地图配置</strong>
+        <button class="small" id="configCloseBtn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div>
+            <label>Web JS API Key</label>
+            <input id="amapKeyInput" placeholder="高德 Web 端 Key" />
+          </div>
+          <div>
+            <label>安全密钥 securityJsCode</label>
+            <input id="amapSecurityInput" placeholder="安全密钥" />
+          </div>
+        </div>
+        <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">
+          <button class="primary" id="saveConfigBtn">保存并刷新</button>
+          <button id="testConfigBtn">测试连接</button>
+        </div>
+        <div class="hint" id="configStatus">保存后页面会重新加载高德地图。密钥只存在本机浏览器。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="exportModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong>导出</strong>
+        <button class="small" id="exportCancelBtn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <label style="display:flex;align-items:center;gap:8px;margin:0">
+          <input id="exportRenderVideo" type="checkbox" style="width:auto" />
+          <span>同时渲染 MP4 视频</span>
+        </label>
+        <div class="hint">默认只同步路线 JSON、视频数据、MD/PDF 文档；勾选后会额外渲染 MP4，耗时较长。</div>
+        <div id="exportTaskPanel" class="hint" style="display:none;margin-top:10px;border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)">
+          <div id="exportTaskStatus">已有导出任务。</div>
+          <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">
+            <button id="exportStopBtn" class="small" type="button">终止当前任务</button>
+          </div>
+        </div>
+        <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">
+          <button class="primary" id="exportConfirmBtn">导出</button>
+          <button id="exportCancelBtn2">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:none">
+    <select id="daySelect"></select>
+    <select id="pointType"><option value="waypoint"></option><option value="from"></option><option value="to"></option></select>
+  </div>
+
+  <div class="status"><div class="toast" id="toast"></div></div>
+  <div class="loading" id="loading">
+    <div class="loading-box">
+      <div class="loading-text" id="loadingText">正在计算路线…</div>
+      <div class="loading-progress" id="loadingProgress"><span id="loadingProgressBar"></span></div>
+      <div class="loading-detail" id="loadingDetail"></div>
+    </div>
+  </div>
+
+  <script src="./src/config/amapConfig.js"></script>
+  <script src="./src/api/localServiceClient.js"></script>
+  <script src="./src/map/mapProvider.js"></script>
+  <script src="./src/map/amapProvider.js"></script>
+  <script src="./src/domain/routeModel.js"></script>
+  <script src="./src/utils/format.js"></script>
+  <script src="./src/utils/html.js"></script>
+  <script src="./src/state/routeBookStore.js"></script>
+  <script src="./src/ui/feedback.js"></script>
+  <script src="./src/ui/routeRenderer.js"></script>
+  <script src="./src/features/scenic/scenicController.js"></script>
+  <script src="./src/features/export/exportTaskController.js"></script>
+  <script src="./src/features/map/routeMapController.js"></script>
+  <script src="./src/features/search/placeSearchController.js"></script>
+  <script src="./src/features/archive/archiveController.js"></script>
+  <script src="./src/features/point/pointEditorController.js"></script>
+  <script src="./src/features/export/videoDataBuilder.js"></script>
+  <script src="./src/main.js"></script>
+</body>
+</html>

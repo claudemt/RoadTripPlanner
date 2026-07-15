@@ -1,0 +1,28 @@
+node_modules/
+
+# Author private local data (not published)
+data/routes/
+data/config/local.env
+.env
+.env.local
+
+# Generated render working files
+app/video/src/projects/amap-route-video/data/route-video-data.json
+**/latest-render.log
+*.log
+*.mp4
+*.mp4-data.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.tmp
+_*.py
+_*.js
+out/
+dist/
+output/

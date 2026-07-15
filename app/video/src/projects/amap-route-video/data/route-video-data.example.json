@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "exportedAt": "",
+  "mapLayer": "standard",
+  "renderSpeed": 1,
+  "route": {
+    "id": "demo",
+    "name": "示例路线"
+  },
+  "days": [],
+  "summary": {
+    "dayCount": 0,
+    "totalDistance": 0,
+    "totalDuration": 0,
+    "bounds": [100, 30, 120, 40]
+  }
+}
