@@ -6,7 +6,7 @@
 
 ```text
 map.bestapi.best       # RoadTripPlanner 网站
-auth.bestapi.best      # Cloud-IAM 登录中心
+auth.bestapi.best      # 可选：Cloud-IAM 自定义域名
 ```
 
 所有密钥和密码都使用占位符。不要把真实密钥提交到 Git。
@@ -29,7 +29,7 @@ flowchart LR
 
 | 模块 | 用途 |
 | --- | --- |
-| Caddy | 自动 HTTPS、静态网站服务、反向代理 Cloud-IAM |
+| Caddy | 自动 HTTPS、静态网站服务 |
 | Cloud-IAM | 用户注册、用户名密码登录、忘记密码邮件找回、修改密码 |
 | Supabase Auth | 接入 Cloud-IAM OIDC，给前端提供登录态 |
 | Supabase Database | 保存用户路线、共享景点、站点配置 |
@@ -41,11 +41,13 @@ flowchart LR
 在你的 DNS 服务商中添加：
 
 ```text
-map.bestapi.best    A    <服务器公网 IPv4>
-auth.bestapi.best   A    <服务器公网 IPv4>
+map.bestapi.best    A        <服务器公网 IPv4>
+auth.bestapi.best   CNAME    <Cloud-IAM 要求的目标域名>
 ```
 
-如果服务器有 IPv6，可以额外添加 AAAA 记录。解析生效后再继续配置 Caddy，Caddy 会自动申请 HTTPS 证书。
+`auth.bestapi.best` 只有在 Cloud-IAM 支持并启用自定义域名时才需要配置。没有自定义域名时，直接使用 Cloud-IAM 分配的默认域名即可。
+
+如果服务器有 IPv6，可以给 `map.bestapi.best` 额外添加 AAAA 记录。解析生效后再继续配置 Caddy，Caddy 会自动申请网站 HTTPS 证书。
 
 ## 3. Debian 12 基础环境
 
@@ -86,114 +88,57 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-## 4. 部署 Cloud-IAM
+## 4. 配置 Cloud-IAM
 
-创建目录：
+Cloud-IAM 是托管 Keycloak 服务，不需要在你的 Debian 服务器上部署身份服务。服务器只负责 RoadTripPlanner 前端、Caddy 和可选渲染 Worker。
 
-```bash
-sudo mkdir -p /opt/cloud-iam
-sudo chown -R $USER:$USER /opt/cloud-iam
-cd /opt/cloud-iam
-```
-
-创建 `docker-compose.yml`：
-
-```yaml
-services:
-  db:
-    image: postgres:16
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: cloudiam
-      POSTGRES_USER: cloudiam
-      POSTGRES_PASSWORD: CHANGE_ME_CLOUD_IAM_DB_PASSWORD
-    volumes:
-      - ./postgres:/var/lib/postgresql/data
-
-  cloud-iam:
-    image: cloud-iam/keycloak:latest
-    restart: unless-stopped
-    depends_on:
-      - db
-    ports:
-      - "127.0.0.1:8000:8000"
-    environment:
-      driverName: postgres
-      dataSourceName: "user=cloudiam password=CHANGE_ME_CLOUD_IAM_DB_PASSWORD host=db port=5432 sslmode=disable"
-      dbName: cloudiam
-      runmode: prod
-      origin: "https://auth.bestapi.best"
-```
-
-把 `CHANGE_ME_CASDOOR_DB_PASSWORD` 改成强密码，然后启动：
-
-```bash
-docker compose up -d
-docker compose logs -f cloud-iam
-```
-
-配置 Caddy 反向代理：
-
-```bash
-sudo nano /etc/caddy/Caddyfile
-```
-
-写入或合并以下配置：
-
-```caddyfile
-auth.bestapi.best {
-    encode zstd gzip
-    reverse_proxy 127.0.0.1:8000
-}
-```
-
-验证并重载：
-
-```bash
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl reload caddy
-```
-
-打开：
+登录 Cloud-IAM 控制台后，创建或确认一个 Keycloak 实例，并记录它的访问地址：
 
 ```text
-https://auth.bestapi.best
+Cloud-IAM Base URL: https://<你的 Cloud-IAM Keycloak 域名>
 ```
 
-首次进入后，用 Cloud-IAM 默认管理员登录并立刻修改密码。默认账号以你的部署方式为准，首次密码建议改为 `admin`。
+如果你已经在 Cloud-IAM 配置了自定义域名，可以使用：
 
 ```text
-账号：built-in/admin
-密码：123
+Cloud-IAM Base URL: https://auth.bestapi.best
 ```
 
-## 5. 配置 Cloud-IAM 应用
+如果没有配置自定义域名，就使用 Cloud-IAM 分配的默认域名。后续所有 `Issuer URL` 和账户中心地址都从这个 Base URL 推导。
 
-在 Cloud-IAM 后台创建或确认：
+## 5. 配置 Cloud-IAM Realm 和 Client
+
+在 Cloud-IAM 打开 Keycloak Admin Console，创建或确认：
 
 ```text
-Organization: roadtrip
-Application: roadtrip-map
+Realm: roadtrip
+Client ID: roadtrip-map
 ```
 
-Application 关键配置：
+Client 建议配置：
+
+| 字段 | 值 |
+| --- | --- |
+| Client type | OpenID Connect |
+| Client ID | `roadtrip-map` |
+| Client authentication | On |
+| Authorization | Off |
+| Standard flow | On |
+| Direct access grants | Off |
+| Valid redirect URIs | `https://<你的 Supabase Project Ref>.supabase.co/auth/v1/callback` |
+| Valid post logout redirect URIs | `https://map.bestapi.best/*` |
+| Web origins | `https://map.bestapi.best` |
+
+保存后，在 Client 的 Credentials 页面记录：
 
 ```text
-Name: roadtrip-map
-Organization: roadtrip
-Redirect URLs:
-  https://<你的 Supabase Project Ref>.supabase.co/auth/v1/callback
+Client ID: roadtrip-map
+Client Secret: <Cloud-IAM 生成的 secret>
+Issuer URL: <Cloud-IAM Base URL>/realms/roadtrip
+Account Console: <Cloud-IAM Base URL>/realms/roadtrip/account/
 ```
 
-记录以下信息，稍后填入 Supabase：
-
-```text
-Client ID
-Client Secret
-Issuer URL: https://auth.bestapi.best/realms/roadtrip
-```
-
-建议创建站点管理员：
+建议创建站点管理员用户：
 
 ```text
 username: admin
@@ -332,11 +277,6 @@ sudo nano /etc/caddy/Caddyfile
 完整示例：
 
 ```caddyfile
-auth.bestapi.best {
-    encode zstd gzip
-    reverse_proxy 127.0.0.1:8000
-}
-
 map.bestapi.best {
     root * /var/www/roadtrip
     encode zstd gzip
@@ -474,14 +414,13 @@ sudo systemctl reload caddy
 
 ```bash
 curl -I https://map.bestapi.best
-curl -I https://auth.bestapi.best
 ```
 
 应返回 200 或 30x，且证书有效。
 
 ### Cloud-IAM
 
-- `https://auth.bestapi.best` 可以打开。
+- Cloud-IAM Base URL 可以打开。
 - 用户可以注册和登录。
 - 忘记密码邮件服务已按 Cloud-IAM 的 SMTP 配置完成。
 - Cloud-IAM Application 的 Redirect URL 指向 Supabase callback。
@@ -568,24 +507,17 @@ name = admin
 try_files {path} /index.html
 ```
 
-### Cloud-IAM 502
+### Cloud-IAM 打不开
 
-检查：
+如果使用 Cloud-IAM 默认域名，检查 Cloud-IAM 控制台中的实例状态。如果使用 `auth.bestapi.best` 自定义域名，检查 DNS、Cloud-IAM 自定义域名状态和证书状态。
 
-```bash
-docker ps
-docker logs -f cloud-iam
-sudo systemctl status caddy
-```
-
-如果容器名不同，先用 `docker ps` 查看真实名称。
+不要把托管 Cloud-IAM 反向代理到本机 127.0.0.1；它不是运行在你的 Debian 服务器上的服务。
 
 ## 13. 备份
 
 建议定期备份：
 
 ```text
-/opt/cloud-iam/postgres
 /opt/roadtrip/app/.env.production
 /opt/roadtrip/app/worker.env
 /etc/caddy/Caddyfile
@@ -595,8 +527,8 @@ Supabase 数据建议使用 Dashboard 的备份功能，或定期导出关键表
 
 ## 14. 安全注意
 
-- Cloud-IAM 默认管理员密码上线前必须修改。
-- Cloud-IAM PostgreSQL 密码使用强密码。
+- Cloud-IAM 管理员密码上线前必须修改。
+- Cloud-IAM Client Secret 只填写到 Supabase，不要写入前端环境变量。
 - Supabase Service Role Key 只能放在服务器。
 - 不要提交 `.env.production`、`worker.env`、本地路线数据和私有密钥。
 - Debian 定期更新：
