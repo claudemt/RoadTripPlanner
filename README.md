@@ -1,6 +1,6 @@
 # RoadTripPlanner 使用说明
 
-RoadTripPlanner 是一个自驾路线规划和行程资料整理工具。它可以作为本地高级工具使用，也可以部署成多人访问的网站：用户通过 Casdoor 登录，路线保存在自己的 Supabase 账号下，景点介绍由登录用户共同维护，站点地图 Key 由 admin 统一配置。
+RoadTripPlanner 是一个自驾路线规划和行程资料整理工具。它可以作为本地高级工具使用，也可以部署成多人访问的网站：用户通过 Cloud-IAM 登录，路线保存在自己的 Supabase 账号下，景点介绍由登录用户共同维护，站点地图 Key 由 admin 统一配置。
 
 完整上线步骤见：[部署手册](docs/deployment_manual.md)。
 
@@ -41,12 +41,12 @@ npm run dev
 
 | 组件 | 用途 |
 | --- | --- |
-| Caddy | 静态网站、HTTPS、Casdoor 反向代理 |
-| Casdoor | 用户注册、用户名密码登录、忘记密码 |
+| Caddy | 静态网站、HTTPS、Cloud-IAM 反向代理 |
+| Cloud-IAM | 用户注册、用户名密码登录、忘记密码、修改密码 |
 | Supabase | 数据库、存储、登录态、权限隔离 |
 | 渲染 Worker | 可选，后台生成路线图、Markdown、PDF、MP4 |
 
-服务器部署、域名解析、Casdoor、Supabase、Caddy 和 Worker 的完整配置见：[docs/deployment_manual.md](docs/deployment_manual.md)。
+服务器部署、域名解析、Cloud-IAM、Supabase、Caddy 和 Worker 的完整配置见：[docs/deployment_manual.md](docs/deployment_manual.md)。
 
 ## 站点管理员
 
@@ -123,5 +123,5 @@ data/scenes/<景点名>/
 - 不要提交 Supabase Service Role Key。
 - 不要提交 `.env.production`、`worker.env`、`data/config/local.env`。
 - 不要提交个人路线和导出文件。
-- Casdoor 默认管理员密码上线前必须修改。
+- Cloud-IAM 默认管理员密码上线前必须修改。
 - 高德地图 Key 在网站中由 admin 维护。

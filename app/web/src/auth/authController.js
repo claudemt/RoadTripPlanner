@@ -31,7 +31,11 @@ function renderAccount(runtime, user) {
   if (emailElement) emailElement.textContent = email;
   const modeElement = byId('accountMode');
   if (modeElement) {
-    modeElement.textContent = runtime.mode === 'cloud' ? '云端同步' : runtime.mode === 'local' ? '本地高级版' : '本地草稿';
+    modeElement.textContent = runtime.mode === 'cloud'
+      ? `云端同步 · ${runtime.config.identityLabel || 'Cloud-IAM'}`
+      : runtime.mode === 'local'
+        ? '本地高级版'
+        : '本地草稿';
   }
 
   const signOutButton = byId('signOutBtn');
@@ -66,7 +70,7 @@ function enterWorkspace(runtime, user, animated = false) {
 
 export async function initAuthGate(runtime) {
   const gate = byId('authGate');
-  const loginForm = byId('casdoorLoginForm');
+  const loginForm = byId('identityLoginForm');
   const previewButton = byId('previewModeBtn');
   const siteName = byId('authSiteName');
   const localHost = ['127.0.0.1', 'localhost'].includes(location.hostname);
@@ -117,7 +121,7 @@ export async function initAuthGate(runtime) {
       setBusy(true);
       setMessage('正在打开登录页…', 'notice');
       const {error: loginError} = await runtime.supabase.auth.signInWithOAuth({
-        provider: runtime.config.casdoorProvider || 'custom:casdoor',
+        provider: runtime.config.oidcProvider || 'custom:cloud-iam',
         options: {
           redirectTo: `${location.origin}/`,
         },

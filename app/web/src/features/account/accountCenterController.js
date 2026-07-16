@@ -28,7 +28,7 @@
     settings: {
       eyebrow: 'ACCOUNT',
       title: '账户设置',
-      subtitle: '管理当前登录状态和站点服务信息。',
+      subtitle: '管理当前登录状态、密码和站点服务信息。',
     },
   };
 
@@ -185,10 +185,20 @@
     el('accountSettingsEmail').textContent = accountName;
     el('accountInitial').textContent = accountName.slice(0, 1).toUpperCase();
 
+    const openIdentityConsole = () => {
+      const url = runtime?.config?.identityAccountUrl;
+      if (!url) {
+        toast('未配置账户中心地址，请先设置 VITE_IDENTITY_ACCOUNT_URL。');
+        return;
+      }
+      window.open(url, '_blank', 'noopener,noreferrer');
+    };
+
     document.querySelectorAll('[data-account-view]').forEach((button) => {
       button.onclick = () => setView(button.dataset.accountView);
     });
     el('accountCenterClose').onclick = close;
+    el('openIdentityConsoleBtn').onclick = openIdentityConsole;
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && el('accountCenter').classList.contains('open')) close();
     });

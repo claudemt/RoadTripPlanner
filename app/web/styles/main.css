@@ -709,6 +709,12 @@
       padding: 13px 0;
       border-top: 1px solid #d8ddda;
     }
+    .settings-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
     .settings-section dt {
       color: #737e79;
       font-size: 11px;
@@ -1317,11 +1323,11 @@
     .auth-input-row.reset-row {
       grid-template-columns: minmax(0, 1fr) 112px;
     }
-    .auth-input-row.casdoor-row {
+    .auth-input-row.identity-row {
       grid-template-columns: minmax(180px, 260px);
       border-bottom: 0;
     }
-    .auth-input-row.casdoor-row .auth-submit {
+    .auth-input-row.identity-row .auth-submit {
       width: 100%;
     }
     .auth-input-row input {

@@ -5,9 +5,9 @@
 1. 创建一个 Supabase 项目。
 2. 打开 SQL Editor。
 3. 执行 `supabase/migrations/001_initial_schema.sql`。
-4. 本地部署 Casdoor，并在 Supabase Authentication 中添加 Casdoor 对应的 Custom OAuth/OIDC provider。
-5. 把网站正式域名加入 Supabase 允许的站点 URL，并把回调 URL 配到 Casdoor 应用。
-6. 执行 `supabase/migrations/002_cloud_exports.sql`、`003_app_settings.sql` 和 `004_casdoor_admin.sql`。
+4. 本地部署 Cloud-IAM，并在 Supabase Authentication 中添加 Cloud-IAM 对应的 Custom OAuth/OIDC provider。
+5. 把网站正式域名加入 Supabase 允许的站点 URL，并把回调 URL 配到 Cloud-IAM 应用。
+6. 执行 `supabase/migrations/002_cloud_exports.sql`、`003_app_settings.sql` 和 `004_oidc_admin.sql`。
 
 原来的 `data/scenes/` 会继续作为网站内置的景点资料。登录用户第一次
 修改某个景点后，新版本会进入 Supabase，并优先于本地内置版本显示。
@@ -26,8 +26,8 @@
 | 构建命令 | `npm run build` |
 | 输出目录 | `dist` |
 
-然后按照 `app/.env.example` 添加环境变量。`VITE_SUPABASE_CASDOOR_PROVIDER` 默认是
-`custom:casdoor`，需要和 Supabase 中创建的 custom provider 名称一致。
+然后按照 `app/.env.example` 添加环境变量。`VITE_SUPABASE_OIDC_PROVIDER` 默认是
+`custom:cloud-iam`，需要和 Supabase 中创建的 custom provider 名称一致。
 
 Supabase Publishable Key 可以放在浏览器端。用户数据权限由迁移文件里的
 RLS 规则控制，不要把 Supabase Service Role Key 填入 EdgeOne。

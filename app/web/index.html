@@ -31,12 +31,12 @@
     <div class="auth-login-rail">
       <div class="auth-login-heading">
         <span>账号登录</span>
-        <small>Casdoor</small>
+        <small>Cloud-IAM</small>
       </div>
 
-      <form class="auth-form" id="casdoorLoginForm">
+      <form class="auth-form" id="identityLoginForm">
         <label>统一账号</label>
-        <div class="auth-input-row casdoor-row">
+        <div class="auth-input-row identity-row">
           <button class="auth-submit" id="authSubmitBtn" type="submit">登录 / 注册</button>
         </div>
       </form>
@@ -322,6 +322,22 @@
                 <dd>个人路线与导出文件</dd>
               </div>
             </dl>
+          </div>
+          <div class="settings-section">
+            <h3>身份中心</h3>
+            <dl>
+              <div>
+                <dt>登录服务</dt>
+                <dd>Cloud-IAM</dd>
+              </div>
+              <div>
+                <dt>密码管理</dt>
+                <dd>在身份中心修改密码或找回密码</dd>
+              </div>
+            </dl>
+            <div class="settings-actions">
+              <button class="primary" id="openIdentityConsoleBtn" type="button">打开账户中心</button>
+            </div>
           </div>
           <div class="settings-section">
             <h3>站点服务</h3>
