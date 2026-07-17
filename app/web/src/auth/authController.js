@@ -87,8 +87,6 @@ export async function initAuthGate(runtime) {
     byId('authEyebrow').textContent = 'STATIC PREVIEW';
     byId('authSubmitBtn').hidden = true;
     loginForm.hidden = true;
-    document.querySelector('.auth-login-heading span').textContent = '部署预览';
-    document.querySelector('.auth-login-heading small').textContent = '尚未连接云端';
     setMessage(
       localHost
         ? '尚未配置 Supabase。可先预览界面，正式部署时在 EdgeOne 填写环境变量。'

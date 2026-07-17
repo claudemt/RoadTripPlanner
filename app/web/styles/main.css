@@ -1284,11 +1284,15 @@
       min-height: 126px;
       padding: 24px 7vw;
       display: grid;
-      grid-template-columns: 170px minmax(360px, 620px) minmax(180px, 1fr);
+      grid-template-columns: minmax(260px, 360px) minmax(180px, 1fr);
       align-items: center;
       gap: 28px;
       border-top: 1px solid rgba(255,255,255,.25);
       background: rgba(9, 19, 16, .84);
+    }
+    .auth-login-rail .auth-form {
+      display: grid;
+      justify-items: start;
     }
     .auth-login-heading {
       display: grid;
@@ -1324,7 +1328,7 @@
       grid-template-columns: minmax(0, 1fr) 112px;
     }
     .auth-input-row.identity-row {
-      grid-template-columns: minmax(180px, 260px);
+      grid-template-columns: minmax(220px, 320px);
       border-bottom: 0;
     }
     .auth-input-row.identity-row .auth-submit {
