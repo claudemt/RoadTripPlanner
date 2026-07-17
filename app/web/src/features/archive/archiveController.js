@@ -30,6 +30,7 @@
 
     function renderArchiveList(routes) {
       const box = el('archiveList');
+      if (!box) return;
       if (!routes.length) {
         box.innerHTML = '';
         return;
@@ -118,7 +119,7 @@
         const suffix = localService.capabilities?.mode === 'local'
           ? '。请确认 start.bat 本地服务正在运行。'
           : '。请检查登录状态和 Supabase 数据表配置。';
-        box.innerHTML = `<div class="hint">读取路线失败：${escapeHtml(error.message)}${suffix}</div>`;
+        if (box) box.innerHTML = `<div class="hint">读取路线失败：${escapeHtml(error.message)}${suffix}</div>`;
       }
     }
 

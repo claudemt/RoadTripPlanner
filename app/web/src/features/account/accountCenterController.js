@@ -17,8 +17,8 @@
   const views = {
     routes: {
       eyebrow: 'ROUTES',
-      title: '我的路线',
-      subtitle: '按最近更新时间排列，只显示当前账户保存的路线。',
+      title: '路线管理',
+      subtitle: '在这里新建、改名和删除路线；地图页只负责编辑行程内容。',
     },
     exports: {
       eyebrow: 'EXPORTS',
@@ -32,7 +32,18 @@
     },
   };
 
-  function create({el, localService, runtime, escapeHtml, escapeAttr, toast, loadRoute}) {
+  function create({
+    el,
+    localService,
+    runtime,
+    escapeHtml,
+    escapeAttr,
+    toast,
+    loadRoute,
+    createRoute,
+    renameRoute,
+    deleteRoute
+  }) {
     let refreshTimer = null;
     let activeView = 'routes';
 
@@ -66,13 +77,34 @@
             <span>${Number(route.routeData?.days?.length || 0)} 天行程</span>
           </div>
           <time class="account-item-time">${formatTime(route.updatedAt || route.archivedAt)}</time>
-          <button class="small primary" data-load-route="${escapeAttr(route.safeName)}">打开</button>
+          <div class="account-item-actions">
+            <button class="small primary" data-load-route="${escapeAttr(route.safeName)}">打开</button>
+            <button class="small" data-rename-route="${escapeAttr(route.safeName)}">改名</button>
+            <button class="small danger" data-delete-route="${escapeAttr(route.safeName)}">删除</button>
+          </div>
         </article>
       `).join('');
       list.querySelectorAll('[data-load-route]').forEach((button) => {
         button.onclick = async () => {
           await loadRoute(button.dataset.loadRoute);
           close();
+        };
+      });
+      list.querySelectorAll('[data-rename-route]').forEach((button) => {
+        button.onclick = async () => {
+          const item = routes.find((route) => route.safeName === button.dataset.renameRoute);
+          if (!item || typeof renameRoute !== 'function') return;
+          const next = prompt('路线名称', item.name || '未命名路线');
+          if (next === null) return;
+          if (await renameRoute(button.dataset.renameRoute, next)) await refresh();
+        };
+      });
+      list.querySelectorAll('[data-delete-route]').forEach((button) => {
+        button.onclick = async () => {
+          const item = routes.find((route) => route.safeName === button.dataset.deleteRoute);
+          if (!item || typeof deleteRoute !== 'function') return;
+          if (!confirm(`删除路线“${item.name || '未命名路线'}”？`)) return;
+          if (await deleteRoute(button.dataset.deleteRoute)) await refresh();
         };
       });
     }
@@ -159,6 +191,26 @@
       if (refreshTimer) window.clearInterval(refreshTimer);
       refreshTimer = null;
     }
+
+    el('accountRouteCreateForm').onsubmit = async (event) => {
+      event.preventDefault();
+      if (typeof createRoute !== 'function') return;
+      const nameInput = el('accountRouteNameInput');
+      const daysInput = el('accountRouteDaysInput');
+      const name = nameInput.value.trim();
+      const dayCount = Math.max(1, Math.min(365, Number(daysInput.value) || 1));
+      if (!name) {
+        toast('请填写路线名称。');
+        nameInput.focus();
+        return;
+      }
+      const created = await createRoute({name, dayCount});
+      if (created) {
+        nameInput.value = '';
+        daysInput.value = '1';
+        await refresh();
+      }
+    };
 
     async function open(view = 'routes') {
       setView(view);

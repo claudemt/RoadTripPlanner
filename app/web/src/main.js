@@ -144,7 +144,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       escapeHtml,
       escapeAttr,
       toast,
-      loadRoute: archiveController.load
+      loadRoute: loadRouteFromAccount,
+      createRoute: createRouteFromAccount,
+      renameRoute: renameRouteById,
+      deleteRoute: deleteRouteById
     });
     window.openAccountCenter = accountCenter.open;
     const pointEditor = window.PointEditorController.create({
@@ -226,16 +229,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       el('calcBtn').onclick = calculateRoute;
-      el('saveBtn').onclick = saveRoute;
-      el('refreshArchiveBtn').onclick = refreshArchivedRoutes;
-      el('routeEditBtn').onclick = () => el('routeEditPanel').classList.toggle('open');
       if (el('openAccountBtn')) el('openAccountBtn').onclick = () => accountCenter.open('routes');
       el('exportBtn').onclick = openExportModal;
-      el('openRouteFolderBtn').onclick = () => {
-        el('routeManageStatus').textContent = '导出目录：data/routes/';
-        toast('导出目录已显示。');
-      };
-      el('newRouteTopBtn').onclick = newRoute;
       el('mapLayerSelect').value = currentMapLayer;
       el('mapLayerSelect').onchange = () => setMapLayer(el('mapLayerSelect').value);
       el('mapLayerBtn').onclick = () => {
@@ -252,34 +247,17 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       bindExportModal();
       el('spotCloseBtn').onclick = scenicController.closeSpotPanel;
       el('imageLightbox').onclick = scenicController.closeLightbox;
-      el('resetBtn').onclick = () => {
-        if (!confirm('确认清空为空白路线？当前未导出的修改会丢失。')) return;
-        const blank = createBlankRoute(route.name || '我的自驾线路');
-        routeBook = { activeRouteId: blank.id, routes: [normalizeRoute(blank)] };
-        route = routeStore.getActive(routeBook);
-        currentRouteView = 'all';
-        segmentResults = [];
-        saveRoute(false);
-        renderAll(false);
-        if (routeMap.isReady()) calculateRoute();
-        toast('已清空为空白路线。');
-      };
       el('applyJsonBtn').onclick = applyJson;
       el('routeSelect').onchange = selectRouteFromDropdown;
-      el('routeNameInput').onchange = () => {
-        el('routeSelect').value = el('routeNameInput').value;
-        selectRouteFromDropdown();
-      };
-      el('renameRouteBtn').onclick = () => {
-        if (!renameCurrentRoute()) return;
-        saveRoute(true);
-        renderAll(false);
-      };
-      el('deleteRouteBtn').onclick = deleteCurrentRoute;
       el('routeViewSelect').onchange = () => {
         currentRouteView = el('routeViewSelect').value;
         renderDays();
         renderMarkersAndSegments(true);
+      };
+      el('daysList').onclick = (event) => {
+        const button = event.target.closest('[data-add-day-after]');
+        if (!button) return;
+        addDayAfter(Number(button.dataset.addDayAfter));
       };
       el('pointSearchBtn').onclick = searchPlace;
       el('pointSearchInput').addEventListener('input', onSearchInput);
@@ -292,8 +270,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         if (!e.target.closest('.search-wrap')) closeSuggestions();
         scenicController.handleOutsideClick(e.target);
       });
-      el('addDayBtn').onclick = addDay;
-      el('resolveAllBtn').onclick = resolveAllNames;
       el('useMapClickBtn').onclick = pointEditor.toggleMapClick;
     }
 
@@ -315,11 +291,20 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (routeMap.isReady()) calculateRoute();
     }
 
-    function renameCurrentRoute() {
-      const next = prompt('路线名称', cleanRouteName(route.name) || '未命名线路');
-      if (next === null) return false;
-      route.name = cleanRouteName(next) || route.name || '未命名线路';
-      return true;
+    async function loadRouteFromAccount(routeId) {
+      const localRoute = routeBook.routes.find((item) => item.id === routeId);
+      if (!localRoute) return archiveController.load(routeId);
+      routeBook.activeRouteId = localRoute.id;
+      route = routeStore.getActive(routeBook);
+      currentRouteView = 'all';
+      segmentResults = [];
+      renderAll(true);
+      const readyPoints = route.days.some((day) => getDayPoints(day)
+        .map((item) => item.point)
+        .filter(isPointReady)
+        .length >= 2);
+      if (routeMap.isReady() && readyPoints) await calculateRoute();
+      toast('已打开路线：' + (route.name || '未命名路线'));
     }
 
     function setMapLayer(layer) {
@@ -496,36 +481,97 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
     }
 
-    function newRoute() {
-      const name = prompt('新线路名称', '新线路');
-      if (name === null) return;
-      const next = normalizeRoute(createBlankRoute(name.trim() || '新线路'));
+    async function saveRouteNow(targetRoute = route) {
+      if (cloudSaveTimer) {
+        clearTimeout(cloudSaveTimer);
+        cloudSaveTimer = null;
+      }
+      routeStore.save(routeBook);
+      if (!localService.capabilities?.cloudRoutes) {
+        return {response: {ok: true, status: 200}, data: {ok: true}};
+      }
+      return localService.saveRoute(getEditableRoute(targetRoute), currentMapLayer);
+    }
+
+    async function createRouteFromAccount({name, dayCount}) {
+      const cleanName = cleanRouteName(name) || '未命名线路';
+      const next = normalizeRoute(createBlankRoute(cleanName, dayCount));
+      const previousRoute = route;
+      const previousActiveId = routeBook.activeRouteId;
       routeBook.routes.push(next);
       routeBook.activeRouteId = next.id;
       route = next;
       currentRouteView = 'all';
       segmentResults = [];
-      saveRoute(false);
-      renderAll(true);
-      toast(localService.capabilities?.cloudRoutes ? '已新建路线并同步到你的账户。' : '已新建空白路线。');
+      renderAll(false);
+      try {
+        const {response, data} = await saveRouteNow(next);
+        if (!response.ok || !data?.ok) throw new Error(data?.message || '保存失败');
+        toast(localService.capabilities?.cloudRoutes ? '已新建路线并同步到你的账户。' : '已新建空白路线。');
+        return true;
+      } catch (error) {
+        routeBook.routes = routeBook.routes.filter((item) => item.id !== next.id);
+        routeBook.activeRouteId = previousActiveId;
+        route = previousRoute;
+        renderAll(false);
+        toast('新建路线失败：' + error.message);
+        return false;
+      }
     }
 
-    function deleteCurrentRoute() {
-      if (routeBook.routes.length <= 1) return toast('至少保留一条线路。');
-      if (!confirm(`删除线路“${route.name}”？`)) return;
-      const deletedRouteId = route.id;
-      routeBook.routes = routeBook.routes.filter((r) => r.id !== route.id);
-      routeBook.activeRouteId = routeBook.routes[0].id;
-      route = routeStore.getActive(routeBook);
-      currentRouteView = 'all';
-      segmentResults = [];
-      saveRoute(false);
-      renderAll(true);
-      if (localService.capabilities?.cloudRoutes) {
-        localService.deleteRoute(deletedRouteId).then(({response, data}) => {
-          if (!response.ok || !data?.ok) toast('云端删除失败：' + (data?.message || '请重试'));
-        });
+    async function renameRouteById(routeId, name) {
+      const target = routeBook.routes.find((item) => item.id === routeId);
+      if (!target) return false;
+      const nextName = cleanRouteName(name);
+      if (!nextName) return toast('路线名称不能为空。'), false;
+      const previousName = target.name;
+      target.name = nextName;
+      if (route.id === routeId) route.name = nextName;
+      try {
+        const {response, data} = await saveRouteNow(target);
+        if (!response.ok || !data?.ok) throw new Error(data?.message || '保存失败');
+        renderRouteSelect();
+        if (route.id === routeId) syncEditor();
+        toast('路线名称已更新。');
+        return true;
+      } catch (error) {
+        target.name = previousName;
+        if (route.id === routeId) route.name = previousName;
+        renderRouteSelect();
+        toast('修改路线名称失败：' + error.message);
+        return false;
       }
+    }
+
+    async function deleteRouteById(routeId) {
+      if (routeBook.routes.length <= 1) {
+        toast('至少保留一条路线。');
+        return false;
+      }
+      const index = routeBook.routes.findIndex((item) => item.id === routeId);
+      if (index < 0) return false;
+      const removed = routeBook.routes[index];
+      if (localService.capabilities?.cloudRoutes) {
+        const {response, data} = await localService.deleteRoute(routeId);
+        if (!response.ok || !data?.ok) {
+          toast('云端删除失败：' + (data?.message || '请重试'));
+          return false;
+        }
+      }
+      routeBook.routes.splice(index, 1);
+      if (route.id === routeId) {
+        routeBook.activeRouteId = routeBook.routes[0].id;
+        route = routeStore.getActive(routeBook);
+        currentRouteView = 'all';
+        segmentResults = [];
+        routeStore.save(routeBook);
+        renderAll(true);
+      } else {
+        routeStore.save(routeBook);
+        renderRouteSelect();
+      }
+      toast(`已删除路线“${removed.name || '未命名路线'}”。`);
+      return true;
     }
 
     function syncEditor(force = false) {
@@ -665,19 +711,36 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
     }
 
-    function addDay() {
-      const last = route.days[route.days.length - 1];
-      route.days.push({
-        title: `第 ${route.days.length + 1} 天`,
-        from: structuredClone(last.to),
-        waypoints: [],
-        to: { name: '新住宿/终点', lng: last.to.lng + 0.2, lat: last.to.lat + 0.2 }
+    function isGeneratedDayTitle(value) {
+      return /^(?:第\s*\d+\s*天|第[一二三四五六七八九十百千万]+\s*天)$/.test(cleanDayTitle(value));
+    }
+
+    function renumberGeneratedDayTitles(days) {
+      days.forEach((day, index) => {
+        if (isGeneratedDayTitle(day.title)) day.title = `第 ${index + 1} 天`;
       });
+    }
+
+    function addDayAfter(dayIndex) {
+      if (currentRouteView !== 'all') {
+        currentRouteView = 'all';
+        renderDaySelect();
+      }
+      const anchor = route.days[dayIndex];
+      if (!anchor) return;
+      const nextDay = {
+        title: `第 ${dayIndex + 2} 天`,
+        from: structuredClone(anchor.to || {name: '', lng: null, lat: null}),
+        waypoints: [],
+        to: {name: '', lng: null, lat: null}
+      };
+      route.days.splice(dayIndex + 1, 0, nextDay);
+      renumberGeneratedDayTitles(route.days);
+      route.segmentCache = {};
       segmentResults = [];
-      currentRouteView = String(route.days.length - 1);
       renderAll(true);
       saveRoute(false);
-      toast('已新增一天。');
+      toast(`已在 D${dayIndex + 1} 后新增一天。`);
     }
 
     async function resolveAllNames() {
@@ -745,6 +808,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     window.deleteDay = function(dayIndex) {
       if (route.days.length <= 1) return toast('至少保留一天行程。');
       route.days.splice(dayIndex, 1);
+      renumberGeneratedDayTitles(route.days);
+      route.segmentCache = {};
       segmentResults = [];
       renderAll(true);
       saveRoute(false);
@@ -824,7 +889,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         }
         setLoading('导出完成', {percent: 100, detail: '完成'});
         const parts = ['JSON', 'MD', result.manualPdf ? 'PDF' : null, result.output ? 'MP4' : null].filter(Boolean).join(' + ');
-        el('routeManageStatus').textContent = `已导出到：${result.dir}${result.manualPdf ? '；PDF：' + result.manualPdf : ''}${result.pdfError ? '；PDF 警告：' + result.pdfError : ''}`;
+        const routeManageStatus = el('routeManageStatus');
+        if (routeManageStatus) {
+          routeManageStatus.textContent = `已导出到：${result.dir}${result.manualPdf ? '；PDF：' + result.manualPdf : ''}${result.pdfError ? '；PDF 警告：' + result.pdfError : ''}`;
+        }
         toast(result.pdfError ? `已导出 ${parts}（PDF 失败：${result.pdfError}）` : `已导出：${parts}`);
         await refreshArchivedRoutes();
       } catch (error) {
@@ -885,38 +953,18 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').onclick = () => openSetupOverlay();
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
-      el('newRouteTopBtn').onclick = newRoute;
       el('exportBtn').onclick = openExportModal;
-      el('saveBtn').onclick = saveRoute;
-      el('routeEditBtn').onclick = () => el('routeEditPanel').classList.toggle('open');
       if (el('openAccountBtn')) el('openAccountBtn').onclick = () => accountCenter.open('routes');
       el('routeSelect').onchange = selectRouteFromDropdown;
-      el('routeNameInput').onchange = () => {
-        el('routeSelect').value = el('routeNameInput').value;
-        selectRouteFromDropdown();
-      };
-      el('addDayBtn').onclick = addDay;
-      el('renameRouteBtn').onclick = () => {
-        if (!renameCurrentRoute()) return;
-        saveRoute(true);
-        renderAll(false);
-      };
       el('routeViewSelect').onchange = () => {
         currentRouteView = el('routeViewSelect').value;
         renderDays();
         renderMarkersAndSegments(true);
       };
-      el('deleteRouteBtn').onclick = deleteCurrentRoute;
-      el('resetBtn').onclick = () => {
-        if (!confirm('确认清空为空白路线？当前未导出的修改会丢失。')) return;
-        const blank = createBlankRoute(route.name || '我的自驾线路');
-        routeBook = { activeRouteId: blank.id, routes: [normalizeRoute(blank)] };
-        route = routeStore.getActive(routeBook);
-        currentRouteView = 'all';
-        segmentResults = [];
-        saveRoute(false);
-        renderAll(false);
-        toast('已清空为空白路线。');
+      el('daysList').onclick = (event) => {
+        const button = event.target.closest('[data-add-day-after]');
+        if (!button) return;
+        addDayAfter(Number(button.dataset.addDayAfter));
       };
       if (!localService.capabilities?.serverExport) {
         el('exportBtn').textContent = '下载';
@@ -934,10 +982,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           if (copy) copy.textContent = '地图由站点统一配置，刷新后仍不可用时请联系站点管理员。';
         }
       }
-      if (localService.capabilities?.cloudRoutes) {
-        el('newRouteTopBtn').title = '新建并保存到当前账户';
-        el('routeSelect').title = '选择当前账户下的路线';
-      }
+      if (localService.capabilities?.cloudRoutes) el('routeSelect').title = '选择当前账户下的路线';
       renderAll(false);
     }
 

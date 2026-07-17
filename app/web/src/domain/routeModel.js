@@ -50,16 +50,17 @@
     return next;
   }
 
-  function createBlankRoute(name = '我的自驾线路') {
+  function createBlankRoute(name = '我的自驾线路', dayCount = 1) {
+    const count = Math.floor(Math.max(1, Math.min(365, Number(dayCount) || 1)));
     return {
       id: 'route-' + Date.now().toString(36),
       name,
-      days: [{
-        title: '第一天',
+      days: Array.from({length: count}, (_, index) => ({
+        title: `第 ${index + 1} 天`,
         from: { name: '', lng: null, lat: null },
         waypoints: [],
         to: { name: '', lng: null, lat: null }
-      }]
+      }))
     };
   }
 

@@ -22,10 +22,6 @@
         .join('');
       el('routeSelect').innerHTML = localOptions + (archivedOptions ? `<optgroup label="已导出路线">${archivedOptions}</optgroup>` : '');
       el('routeSelect').value = route.id;
-      el('routeNameInput').innerHTML = routeBook.routes
-        .map((item) => `<option value="${escapeAttr(item.id)}">${escapeHtml(cleanRouteName(item.name) || item.id)}</option>`)
-        .join('');
-      el('routeNameInput').value = route.id;
     }
 
     function renderDaySelect({route, currentRouteView}) {
@@ -101,6 +97,7 @@
                 <span class="day-total">${formatTripMetric(dayDistance, dayDuration)}</span>
               </div>
               <div class="day-actions">
+                ${currentRouteView === 'all' ? `<button class="small" data-add-day-after="${dayIndex}" title="在这一天后面增加一天">后加</button>` : ''}
                 <button class="small primary" onclick="openPointEditor({mode:'appendWaypoint',dayIndex:${dayIndex}})">添</button>
                 <button class="small" onclick="renameDayPrompt(${dayIndex})">改</button>
                 <button class="small danger" onclick="deleteDay(${dayIndex})">删</button>

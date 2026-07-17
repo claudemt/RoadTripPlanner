@@ -144,8 +144,6 @@
       border-radius: 9px 9px 4px 4px;
     }
     body.cloud-mode .account-email { display: none; }
-    body.cloud-mode .top-toolbar { grid-template-columns: repeat(4, 1fr); }
-
     .toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -156,7 +154,7 @@
     }
     .top-toolbar {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 5px;
       padding: 6px 8px;
       background: #f2f5f2;
@@ -193,20 +191,6 @@
       background: rgba(245,237,223,.72);
       font-size: 11px;
     }
-    .route-edit-panel {
-      display: none;
-      padding: 8px;
-      border-bottom: 1px solid var(--border);
-      background: #edf1ee;
-      max-height: min(46vh, 390px);
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      flex-shrink: 0;
-    }
-    .route-edit-panel.open { display: block; }
-    .route-edit-grid { display: grid; grid-template-columns: minmax(128px, 1fr) auto auto auto; gap: 6px; align-items: center; }
-    .route-edit-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-
     button, select, input, textarea {
       font: inherit;
     }
@@ -576,6 +560,29 @@
       font-weight: 700;
       text-transform: uppercase;
     }
+    .account-route-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 140px auto;
+      align-items: end;
+      gap: 12px;
+      max-width: 1080px;
+      margin: 0 auto 24px;
+      padding: 16px;
+      border: 1px solid #c7ceca;
+      background: rgba(255, 255, 255, .58);
+    }
+    .account-route-form-field {
+      display: grid;
+      gap: 6px;
+    }
+    .account-route-form-field label {
+      color: #68736e;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .account-route-form button {
+      min-height: 34px;
+    }
     .account-item {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 180px 82px;
@@ -673,6 +680,12 @@
       flex-wrap: wrap;
       gap: 6px;
       justify-content: flex-start;
+    }
+    .route-account-item .account-item-actions {
+      justify-content: flex-end;
+    }
+    .route-account-item {
+      grid-template-columns: minmax(0, 1fr) 180px minmax(170px, auto);
     }
     .account-no-files {
       color: #89928e;
@@ -1487,6 +1500,14 @@
       .account-workspace-head { margin-bottom: 24px; }
       .account-workspace-head h2 { font-size: 25px; }
       .account-list-head { display: none; }
+      .account-route-form {
+        grid-template-columns: minmax(0, 1fr) 96px;
+        gap: 10px;
+        padding: 12px;
+      }
+      .account-route-form button {
+        grid-column: 1 / -1;
+      }
       .account-item {
         grid-template-columns: minmax(0, 1fr) auto;
         gap: 10px;
@@ -1496,9 +1517,10 @@
         grid-column: 1;
         grid-row: 2;
       }
-      .route-account-item > button {
+      .route-account-item .account-item-actions {
         grid-column: 2;
         grid-row: 1 / 3;
+        justify-content: flex-end;
       }
       .export-account-item {
         grid-template-columns: minmax(0, 1fr) auto;

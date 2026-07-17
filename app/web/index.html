@@ -58,7 +58,6 @@
 
       <div class="toolbar top-toolbar">
         <button class="primary" id="calcBtn">刷新</button>
-        <button id="newRouteTopBtn" title="新建一条路线">新建</button>
         <button class="primary" id="exportBtn" title="网站版下载 JSON；本地版可导出文档和视频">导出</button>
         <button id="mapLayerBtn" title="地图类型：标准/卫星/混合">类型</button>
         <button id="configBtn">配置</button>
@@ -74,24 +73,6 @@
           <select id="routeSelect" title="选择一条路线"></select>
           <select id="routeViewSelect" title="查看范围"></select>
         </div>
-        <button class="small" id="routeEditBtn">编辑</button>
-      </div>
-      <div class="route-edit-panel" id="routeEditPanel">
-        <div class="route-edit-grid">
-          <select id="routeNameInput" title="已有路线"></select>
-          <button id="addDayBtn" class="primary">添</button>
-          <button id="renameRouteBtn">改</button>
-          <button id="deleteRouteBtn" class="danger">删</button>
-        </div>
-        <div class="route-edit-actions" style="display:none">
-          <button id="saveBtn"></button>
-          <button id="resolveAllBtn"></button>
-          <button id="refreshArchiveBtn"></button>
-          <button id="openRouteFolderBtn"></button>
-          <button class="danger" id="resetBtn"></button>
-        </div>
-        <div class="hint" id="routeManageStatus" style="display:none"></div>
-        <div class="archive-list" id="archiveList"></div>
       </div>
 
       <div class="content">
@@ -263,7 +244,7 @@
         <nav aria-label="个人工作台导航">
           <button class="active" data-account-view="routes" type="button" aria-current="page">
             <span class="account-nav-index">01</span>
-            <span>我的路线</span>
+            <span>路线管理</span>
             <small id="myRouteCount">0</small>
           </button>
           <button data-account-view="exports" type="button">
@@ -281,11 +262,22 @@
       <main class="account-workspace">
         <header class="account-workspace-head">
           <p id="accountPageEyebrow">ROUTES</p>
-          <h2 id="accountPageTitle">我的路线</h2>
-          <span id="accountPageSubtitle">按最近更新时间排列，只显示当前账户保存的路线。</span>
+          <h2 id="accountPageTitle">路线管理</h2>
+          <span id="accountPageSubtitle">在这里新建、改名和删除路线；地图页只负责编辑行程内容。</span>
         </header>
 
         <section class="account-center-view" id="myRoutesView">
+          <form class="account-route-form" id="accountRouteCreateForm">
+            <div class="account-route-form-field">
+              <label for="accountRouteNameInput">路线名称</label>
+              <input id="accountRouteNameInput" placeholder="如：九兰线、青甘线" maxlength="80" required />
+            </div>
+            <div class="account-route-form-field account-route-days-field">
+              <label for="accountRouteDaysInput">预计天数</label>
+              <input id="accountRouteDaysInput" type="number" min="1" max="365" value="1" required />
+            </div>
+            <button class="primary" id="accountCreateRouteBtn" type="submit">新建路线</button>
+          </form>
           <div class="account-list-head" aria-hidden="true">
             <span>路线</span>
             <span>最近更新</span>
