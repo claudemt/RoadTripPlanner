@@ -45,6 +45,7 @@
       const canLoad = item.cloud || item.routeJson || item.routeData;
       const mp4Url = item.assetUrls?.mp4 || `${base}.mp4?v=${version}`;
       const manualPdfUrl = item.assetUrls?.manualPdf || `${base}.travel.pdf?v=${version}`;
+      const productZipUrl = item.assetUrls?.productZip || localService.routeProductZipUrl?.(item.safeName);
       const publishButton = localService.capabilities?.publishedRoutes
         ? `<button class="small" onclick="publishArchivedRoute('${escapeJsAttr(item.safeName)}')">发布</button>`
         : '';
@@ -58,6 +59,7 @@
             <div class="archive-item-actions">
               <button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>
               ${publishButton}
+              ${productZipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(productZipUrl)}', '_blank')">下载ZIP</button>` : ''}
               ${item.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(mp4Url)}', '_blank')">播放MP4</button>` : ''}
               ${item.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(manualPdfUrl)}', '_blank')">查看PDF</button>` : ''}
             </div>
@@ -76,6 +78,7 @@
           <div class="archive-item-actions">
             ${canLoad ? `<button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>` : ''}
             ${publishButton}
+            ${productZipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(productZipUrl)}', '_blank')">下载ZIP</button>` : ''}
             ${item.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(mp4Url)}', '_blank')">播放MP4</button>` : ''}
             ${item.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(manualPdfUrl)}', '_blank')">查看PDF</button>` : ''}
           </div>
@@ -85,6 +88,7 @@
 
     function renderPublishedRoute(item) {
       const time = item.archivedAt ? new Date(item.archivedAt).toLocaleString() : '';
+      const zipUrl = item.assetUrls?.productZip || localService.publishedRouteProductZipUrl?.(item.id);
       return `
         <div class="archive-item">
           <div class="archive-item-head">
@@ -94,6 +98,7 @@
           <div class="archive-item-sub">发布者：${escapeHtml(item.publishedByEmail || '未知')}${time ? ` · ${escapeHtml(time)}` : ''}</div>
           <div class="archive-item-actions">
             <button class="small primary" onclick="importPublishedRoute('${escapeJsAttr(item.id)}')">导入</button>
+            ${zipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(zipUrl)}', '_blank')">下载ZIP</button>` : ''}
           </div>
         </div>
       `;

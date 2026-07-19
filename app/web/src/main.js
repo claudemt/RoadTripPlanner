@@ -221,7 +221,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       el('newRouteBtn').onclick = createRouteFromPrompt;
-      if (el('emptyRouteCreateBtn')) el('emptyRouteCreateBtn').onclick = createRouteFromPrompt;
+      bindEmptyRouteMenu();
       el('calcBtn').onclick = calculateRoute;
       el('exportBtn').onclick = openExportModal;
       bindRouteLibraryControls();
@@ -264,6 +264,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       bindPointTransportControls();
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-wrap')) closeSuggestions();
+        if (!e.target.closest('.route-combo')) closeEmptyRouteMenu();
         scenicController.handleOutsideClick(e.target);
       });
       el('useMapClickBtn').onclick = pointEditor.toggleMapClick;
@@ -353,15 +354,31 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function renderAccountAssetButtons(item) {
       const archived = archiveController.getRoutes().find((routeItem) => routeItem.safeName === item.id || routeItem.name === item.name);
-      if (!archived) return '';
-      const base = localService.routeAssetBase(archived);
-      const version = encodeURIComponent(archived.updatedAt || archived.archivedAt || Date.now());
-      const manualPdfUrl = archived.assetUrls?.manualPdf || `${base}.travel.pdf?v=${version}`;
-      const mp4Url = archived.assetUrls?.mp4 || `${base}.mp4?v=${version}`;
+      const assetUrls = archived?.assetUrls || getRouteEmbeddedAssetUrls(item);
+      const base = archived ? localService.routeAssetBase(archived) : '';
+      const version = encodeURIComponent(archived?.updatedAt || archived?.archivedAt || Date.now());
+      const zipUrl = assetUrls.productZip || localService.routeProductZipUrl?.(item.id);
+      const manualPdfUrl = assetUrls.manualPdf || (archived ? `${base}.travel.pdf?v=${version}` : '');
+      const mp4Url = assetUrls.mp4 || (archived ? `${base}.mp4?v=${version}` : '');
       return [
-        archived.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(manualPdfUrl)}', '_blank')">PDF</button>` : '',
-        archived.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(mp4Url)}', '_blank')">MP4</button>` : '',
+        zipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(zipUrl)}', '_blank')">ZIP</button>` : '',
+        (archived?.manualPdf || assetUrls.manualPdf) ? `<button class="small" onclick="window.open('${escapeJsAttr(manualPdfUrl)}', '_blank')">PDF</button>` : '',
+        (archived?.mp4 || assetUrls.mp4) ? `<button class="small" onclick="window.open('${escapeJsAttr(mp4Url)}', '_blank')">MP4</button>` : '',
       ].join('');
+    }
+
+    function getRouteEmbeddedAssetUrls(item) {
+      const assets = item?._assets || item?.assets || {};
+      const pick = (key) => {
+        const value = assets[key] || assets[`${key}Url`];
+        if (typeof value === 'string') return value;
+        return value?.url || '';
+      };
+      return {
+        productZip: pick('productZip'),
+        manualPdf: pick('manualPdf'),
+        mp4: pick('mp4'),
+      };
     }
 
     async function renderAccountScenes() {
@@ -455,6 +472,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     function bindRouteLibraryControls() {
       if (el('routeLibraryBtn')) el('routeLibraryBtn').onclick = openRouteLibrary;
       if (el('routeLibraryCloseBtn')) el('routeLibraryCloseBtn').onclick = closeRouteLibrary;
+      if (el('routeLibraryDoneBtn')) el('routeLibraryDoneBtn').onclick = closeRouteLibrary;
       if (el('publishCurrentRouteBtn')) el('publishCurrentRouteBtn').onclick = archiveController.publishCurrent;
       if (el('refreshRouteLibraryBtn')) el('refreshRouteLibraryBtn').onclick = () => refreshArchivedRoutes();
       if (el('publishCurrentRouteBtn')) el('publishCurrentRouteBtn').hidden = !localService.capabilities?.publishedRoutes;
@@ -473,6 +491,32 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function closeRouteLibrary() {
       el('routeLibraryModal')?.classList.remove('open');
+    }
+
+    function closeEmptyRouteMenu() {
+      if (el('emptyRouteMenu')) el('emptyRouteMenu').hidden = true;
+    }
+
+    function bindEmptyRouteMenu() {
+      if (el('emptyRouteCreateBtn')) {
+        el('emptyRouteCreateBtn').onclick = (event) => {
+          event.stopPropagation();
+          if (!el('emptyRouteMenu')) return createRouteFromPrompt();
+          el('emptyRouteMenu').hidden = !el('emptyRouteMenu').hidden;
+        };
+      }
+      if (el('emptyRouteNewBtn')) {
+        el('emptyRouteNewBtn').onclick = () => {
+          closeEmptyRouteMenu();
+          createRouteFromPrompt();
+        };
+      }
+      if (el('emptyRouteImportBtn')) {
+        el('emptyRouteImportBtn').onclick = () => {
+          closeEmptyRouteMenu();
+          openRouteLibrary();
+        };
+      }
     }
 
     function setTab(tabId) {
@@ -1244,7 +1288,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('newRouteBtn')) el('newRouteBtn').onclick = createRouteFromPrompt;
-      if (el('emptyRouteCreateBtn')) el('emptyRouteCreateBtn').onclick = createRouteFromPrompt;
+      bindEmptyRouteMenu();
       el('exportBtn').onclick = openExportModal;
       bindRouteLibraryControls();
       el('routeSelect').onchange = selectRouteFromDropdown;

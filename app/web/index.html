@@ -38,6 +38,10 @@
         <div class="route-combo">
           <select id="routeSelect" title="选择一条路线"></select>
           <button id="emptyRouteCreateBtn" class="primary" hidden>新建路线</button>
+          <div class="empty-route-menu" id="emptyRouteMenu" hidden>
+            <button id="emptyRouteNewBtn" type="button">新建路线</button>
+            <button id="emptyRouteImportBtn" type="button">从公开库导入</button>
+          </div>
           <select id="routeViewSelect" title="查看范围"></select>
         </div>
       </div>
@@ -116,18 +120,16 @@
       <main class="account-workspace">
         <section class="account-view active" id="accountViewRoutes">
           <div class="account-workspace-head">
-            <p>ROUTES</p>
             <h2>我的路线</h2>
-            <span>查看自己的路线和已经生成的产品文件。</span>
+            <span>查看自己的路线，下载已经生成的产品文件。</span>
           </div>
           <div class="account-list" id="accountRouteList"></div>
         </section>
 
         <section class="account-view" id="accountViewScenic">
           <div class="account-workspace-head">
-            <p>SCENES</p>
             <h2>景点介绍</h2>
-            <span>新增或更新公共景点介绍，发布后所有用户都能查看。</span>
+            <span>新增或更新公共景点介绍，发布后所有用户都能查看和继续维护。</span>
           </div>
           <div class="account-route-form scenic-account-form">
             <div class="account-route-form-field">
@@ -147,7 +149,6 @@
 
         <section class="account-view" id="accountViewAdmin">
           <div class="account-workspace-head">
-            <p>ADMIN</p>
             <h2>管理</h2>
             <span>用户、关键配置和公共内容管理。</span>
           </div>
@@ -183,7 +184,6 @@
 
         <section class="account-view" id="accountViewLogout">
           <div class="account-workspace-head">
-            <p>ACCOUNT</p>
             <h2>退出</h2>
             <span>退出由站点登录系统处理。</span>
           </div>
@@ -255,6 +255,9 @@
         </div>
         <div class="hint" id="routeManageStatus">个人路线相互隔离；发布后的路线可供所有用户导入。</div>
         <div class="archive-list" id="archiveList"></div>
+        <div class="modal-footer">
+          <button id="routeLibraryDoneBtn" type="button">退出</button>
+        </div>
       </div>
     </div>
   </div>

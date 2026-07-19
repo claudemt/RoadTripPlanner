@@ -148,10 +148,10 @@
       display: block;
       width: 28px;
       height: 28px;
-      border: 2px solid #ec7a3c;
-      border-radius: 9px;
-      background: #6a95eb;
-      box-shadow: 6px 6px 0 rgba(0,0,0,.18);
+      border: 1px solid #1f2e36;
+      border-radius: 50%;
+      background: #e98a52;
+      box-shadow: 5px 5px 0 rgba(0,0,0,.2);
     }
     .user-menu-icon::before,
     .user-menu-icon::after {
@@ -159,19 +159,22 @@
       position: absolute;
       left: 50%;
       transform: translateX(-50%);
-      background: #fff8e9;
     }
     .user-menu-icon::before {
-      top: 5px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
+      top: 14%;
+      width: 68%;
+      height: 68%;
+      border: 2px solid #263747;
+      border-radius: 26%;
+      background: #7399f0;
     }
     .user-menu-icon::after {
-      bottom: 5px;
-      width: 17px;
-      height: 8px;
-      border-radius: 9px 9px 4px 4px;
+      top: 26%;
+      width: 46%;
+      height: 46%;
+      background:
+        radial-gradient(circle at 50% 21%, #fff 0 16%, transparent 17%),
+        radial-gradient(ellipse at 50% 82%, #fff 0 39%, transparent 40%);
     }
     .toolbar {
       display: flex;
@@ -198,6 +201,7 @@
       background: #f8faf8;
     }
     .route-combo {
+      position: relative;
       display: grid;
       grid-template-columns: minmax(0, 1fr) 118px;
       min-width: 0;
@@ -220,6 +224,32 @@
       border-radius: 0;
       box-shadow: none;
     }
+    .empty-route-menu {
+      position: absolute;
+      left: 0;
+      top: calc(100% + 6px);
+      z-index: 20;
+      display: grid;
+      width: min(100%, 230px);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(31, 43, 38, .18);
+    }
+    .empty-route-menu[hidden] { display: none; }
+    .empty-route-menu button {
+      height: 36px;
+      padding: 0 12px;
+      border-bottom: 1px solid #e3e8e4;
+      color: var(--text);
+      background: #fff;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 650;
+    }
+    .empty-route-menu button:last-child { border-bottom: 0; }
+    .empty-route-menu button:hover { background: #f1f5f2; }
     .route-combo select:focus { box-shadow: inset 0 0 0 2px rgba(198, 106, 45, .18); }
     #routeViewSelect {
       border-left: 1px solid var(--border);
@@ -511,37 +541,36 @@
     .account-avatar {
       position: relative;
       display: grid;
-      width: 46px;
-      height: 46px;
-      margin-bottom: 9px;
+      width: 78px;
+      height: 78px;
+      margin-bottom: 12px;
       place-items: center;
-      border: 1px solid rgba(255, 255, 255, .26);
+      border: 0;
       border-radius: 50%;
       color: #fff;
-      background: #e77a3f;
+      background: transparent;
       font-size: 18px;
       font-weight: 700;
       text-transform: uppercase;
-      box-shadow: 11px 11px 0 rgba(0,0,0,.20);
+      box-shadow: none;
     }
     .account-avatar .user-menu-icon {
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      border-color: #294777;
-      box-shadow: none;
+      width: 72px;
+      height: 72px;
+      box-shadow: 17px 17px 0 rgba(0,0,0,.22);
     }
     .account-identity strong {
       width: 100%;
       overflow: hidden;
       color: #fff;
-      font-size: 12px;
+      font-size: 15px;
+      line-height: 1.35;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .account-identity > span:last-child {
       color: rgba(232, 236, 233, .58);
-      font-size: 10px;
+      font-size: 13px;
     }
     .account-navigation nav {
       display: grid;
@@ -558,6 +587,7 @@
       border: 0;
       border-radius: 6px;
       color: rgba(232, 236, 233, .7);
+      font-size: 14px;
       background: transparent;
       box-shadow: none;
       text-align: left;
@@ -573,11 +603,12 @@
     .account-nav-index {
       color: #d47a58;
       font-family: var(--mono);
-      font-size: 9px;
+      font-size: 11px;
     }
     .account-navigation nav button small {
       min-width: 22px;
       color: rgba(232, 236, 233, .56);
+      font-size: 12px;
       text-align: right;
     }
     .account-workspace {
@@ -591,17 +622,10 @@
       padding-bottom: 22px;
       border-bottom: 1px solid #cfd5d1;
     }
-    .account-workspace-head p {
-      margin: 0 0 8px;
-      color: var(--primary-dark);
-      font-family: var(--mono);
-      font-size: 10px;
-      font-weight: 700;
-    }
     .account-workspace-head h2 {
       margin: 0;
       color: #17231f;
-      font-size: 30px;
+      font-size: 34px;
       line-height: 1.2;
       font-weight: 650;
     }
@@ -609,7 +633,8 @@
       display: block;
       margin-top: 8px;
       color: #68736e;
-      font-size: 12px;
+      font-size: 15px;
+      line-height: 1.55;
     }
     .account-list {
       max-width: 1080px;
@@ -629,7 +654,7 @@
       margin: 0 auto 8px;
       padding: 0 14px;
       color: #78827e;
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 700;
       text-transform: uppercase;
     }
@@ -658,7 +683,7 @@
     }
     .account-route-form-field label {
       color: #68736e;
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 700;
     }
     .account-route-form button {
@@ -705,7 +730,7 @@
     .account-item-main strong {
       overflow: hidden;
       color: var(--ink);
-      font-size: 14px;
+      font-size: 16px;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -713,7 +738,7 @@
     .account-item-time,
     .account-item-message {
       color: var(--muted);
-      font-size: 11px;
+      font-size: 13px;
     }
     .export-account-item {
       grid-template-columns: minmax(0, 1fr) 110px minmax(180px, .7fr);
@@ -789,12 +814,13 @@
     }
     .account-no-files {
       color: #89928e;
-      font-size: 11px;
+      font-size: 13px;
     }
     .account-empty {
       padding: 72px 20px;
       border-bottom: 1px solid #c7ceca;
       color: var(--muted);
+      font-size: 14px;
       background: rgba(255, 255, 255, .34);
       text-align: center;
       line-height: 1.7;
@@ -802,6 +828,11 @@
     .account-settings {
       max-width: 1080px;
       margin: 0 auto;
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      padding-top: 12px;
     }
     .settings-section {
       padding: 24px 0;

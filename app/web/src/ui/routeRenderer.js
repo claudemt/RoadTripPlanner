@@ -39,8 +39,8 @@
         .filter((item) => item.routeJson && !localNames.has(item.name))
         .map((item) => `<option value="archive:${escapeAttr(item.safeName)}">导出：${escapeHtml(cleanRouteName(item.name) || item.safeName)}</option>`)
         .join('');
-      const publicOption = '<option value="__public_routes__">◇ 公共路线</option>';
-      el('routeSelect').innerHTML = localOptions + (archivedOptions ? `<optgroup label="已导出路线">${archivedOptions}</optgroup>` : '') + `<optgroup label="路线库">${publicOption}</optgroup>`;
+      const publicOption = '<option value="__public_routes__">从公开库导入</option>';
+      el('routeSelect').innerHTML = localOptions + (archivedOptions ? `<optgroup label="已导出路线">${archivedOptions}</optgroup>` : '') + publicOption;
       el('routeSelect').value = route?.id || routeBook.routes[0]?.id || '';
     }
 
@@ -85,7 +85,7 @@
 
     function renderDays({route, segmentResults, currentRouteView}) {
       if (!route) {
-        el('daysList').innerHTML = '<div class="account-empty">还没有路线。点击“新建”或从“公共路线”导入一条开始。</div>';
+        el('daysList').innerHTML = '<div class="account-empty">还没有路线。</div>';
         return;
       }
       const visibleDays = route.days

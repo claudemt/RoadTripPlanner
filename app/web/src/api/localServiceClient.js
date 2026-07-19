@@ -66,6 +66,12 @@
       deleteRoute(routeId) {
         return fetchJson(apiUrl(`/api/routes/${encodeURIComponent(routeId)}`), {method: 'DELETE'});
       },
+      routeProductZipUrl(routeId) {
+        return apiUrl(`/api/routes/${encodeURIComponent(routeId)}/product.zip`);
+      },
+      publishedRouteProductZipUrl(routeId) {
+        return apiUrl(`/api/published-routes/${encodeURIComponent(routeId)}/product.zip`);
+      },
       getScenic(name) {
         return fetchJson(apiUrl(`/api/scenic?name=${encodeURIComponent(name || '')}`));
       },
@@ -98,6 +104,9 @@
       },
       adminSummary() {
         return fetchJson(apiUrl('/api/admin/summary'));
+      },
+      ensurePublishedRouteZips() {
+        return fetchJson(apiUrl('/api/admin/published-route-zips'), {method: 'POST'});
       },
       exportRoute(payload) {
         return postJson('/api/export-route', payload);

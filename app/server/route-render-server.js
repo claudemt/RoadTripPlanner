@@ -32,6 +32,7 @@ const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const REQUIRE_SUPABASE = /^(1|true|yes|on)$/i.test(String(process.env.ROADTRIP_REQUIRE_SUPABASE || 'false').trim());
 const SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_SCENE_IMAGE_BUCKET || 'roadtrip-scene-images').trim();
+const ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_ROUTE_ASSET_BUCKET || 'roadtrip-route-assets').trim();
 const SUPABASE_TABLES = {
   routes: String(process.env.ROADTRIP_ROUTES_TABLE || 'roadtrip_routes').trim(),
   scenes: String(process.env.ROADTRIP_SCENES_TABLE || 'roadtrip_scenes').trim(),
@@ -329,6 +330,17 @@ const toBasicRouteData = (routeData) => {
   };
 };
 
+const storageSafeSegment = (value) => {
+  const text = String(value || '')
+    .normalize('NFKC')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+    .slice(0, 90);
+  if (text) return text;
+  return `route-${Buffer.from(String(value || Date.now())).toString('hex').slice(0, 18)}`;
+};
+
 const safeExt = (name, mimeType = '') => {
   const ext = path.extname(String(name || '')).toLowerCase();
   if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return ext;
@@ -338,6 +350,78 @@ const safeExt = (name, mimeType = '') => {
 };
 
 const ensureDir = (dir) => fs.mkdirSync(dir, {recursive: true});
+
+const crcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+const crc32 = (buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of buffer) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const zipDateTime = (date = new Date()) => {
+  const year = Math.max(1980, date.getFullYear());
+  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const dosDate = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return {dosTime, dosDate};
+};
+
+const createZipBuffer = (entries) => {
+  const zipEntries = entries.filter((item) => item?.name && item.data != null);
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  const now = zipDateTime();
+  for (const entry of zipEntries) {
+    const name = Buffer.from(String(entry.name).replace(/^\/+/, ''), 'utf8');
+    const data = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(String(entry.data));
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(now.dosTime, 10);
+    local.writeUInt16LE(now.dosDate, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    localParts.push(local, name, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(now.dosTime, 12);
+    central.writeUInt16LE(now.dosDate, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+    offset += local.length + name.length + data.length;
+  }
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(zipEntries.length, 8);
+  end.writeUInt16LE(zipEntries.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, ...centralParts, end]);
+};
 
 const readBody = (req) =>
   new Promise((resolve, reject) => {
@@ -717,7 +801,106 @@ const getRouteAssetUrls = (routeData) => ({
   manualMd: getRouteAssetUrl(routeData, 'manualMd'),
   manualPdf: getRouteAssetUrl(routeData, 'manualPdf'),
   mapImage: getRouteAssetUrl(routeData, 'mapImage'),
+  productZip: getRouteAssetUrl(routeData, 'productZip'),
 });
+
+const buildSimpleRouteMarkdown = (routeData) => {
+  const basic = toBasicRouteData(routeData);
+  const lines = [`# ${mdEscape(basic?.name || '路线')}路线手册`, ''];
+  (basic?.days || []).forEach((day, dayIndex) => {
+    const points = [day.from, ...(day.waypoints || []), day.to].filter((point) => point?.name);
+    lines.push(`## D${dayIndex + 1} ${mdEscape(day.title || `第 ${dayIndex + 1} 天`)}`);
+    lines.push('');
+    lines.push(`- 路线：${points.map((point) => mdEscape(point.name)).join(' → ') || '未填写'}`);
+    lines.push('');
+  });
+  return lines.join('\n');
+};
+
+const fetchAssetBuffer = async (url, maxBytes = MAX_BODY) => {
+  if (!/^https?:\/\//i.test(String(url || ''))) return null;
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  const length = Number(response.headers.get('content-length') || 0);
+  if (length > maxBytes) throw new Error('产品资产过大，无法打包。');
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > maxBytes) throw new Error('产品资产过大，无法打包。');
+  return buffer;
+};
+
+const routeAssetEntryName = (routeName, suffix) => `${safeName(routeName || 'route')}.${suffix}`.replace(/[/\\]+/g, '_');
+
+const buildRouteProductZip = async (routeData, options = {}) => {
+  const name = String(options.name || routeData?.name || '路线').trim() || '路线';
+  const assetUrls = getRouteAssetUrls(routeData);
+  const entries = [
+    {name: routeAssetEntryName(name, 'route.json'), data: JSON.stringify(toBasicRouteData(routeData), null, 2)},
+  ];
+  let addedMd = false;
+  const remoteAssets = [
+    ['manualMd', 'travel.md'],
+    ['manualPdf', 'travel.pdf'],
+    ['videoJson', 'mp4-data.json'],
+    ['mp4', 'mp4'],
+    ['mapImage', 'route-map.png'],
+  ];
+  for (const [key, suffix] of remoteAssets) {
+    const url = assetUrls[key];
+    if (!url || key === 'productZip') continue;
+    const data = await fetchAssetBuffer(url);
+    if (!data) continue;
+    entries.push({name: routeAssetEntryName(name, suffix), data});
+    if (key === 'manualMd') addedMd = true;
+  }
+  if (!addedMd) entries.splice(1, 0, {name: routeAssetEntryName(name, 'travel.md'), data: buildSimpleRouteMarkdown(routeData)});
+  return createZipBuffer(entries);
+};
+
+const uploadBufferToRouteAssets = async (supabase, objectName, buffer, contentType) => {
+  const {error} = await supabase.storage
+    .from(ROUTE_ASSET_BUCKET)
+    .upload(objectName, buffer, {contentType, upsert: true});
+  if (error) throw error;
+  const {data} = supabase.storage.from(ROUTE_ASSET_BUCKET).getPublicUrl(objectName);
+  return data?.publicUrl || null;
+};
+
+const contentTypeForPath = (file) => {
+  const ext = path.extname(String(file || '')).toLowerCase();
+  if (ext === '.json') return 'application/json; charset=utf-8';
+  if (ext === '.md') return 'text/markdown; charset=utf-8';
+  if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.mp4') return 'video/mp4';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  return 'application/octet-stream';
+};
+
+const withRouteAsset = (routeData, key, asset) => ({
+  ...(routeData || {}),
+  _assets: {
+    ...((routeData && routeData._assets) || {}),
+    [key]: asset,
+  },
+});
+
+const uploadRouteProductZip = async (supabase, routeData, options = {}) => {
+  const name = String(options.name || routeData?.name || '路线').trim() || '路线';
+  const idPart = storageSafeSegment(options.id || routeData?.id || name);
+  const objectName = `routes/${idPart}/product.zip`;
+  const buffer = await buildRouteProductZip(routeData, {name});
+  const url = await uploadBufferToRouteAssets(supabase, objectName, buffer, 'application/zip');
+  return {
+    routeData: withRouteAsset(routeData, 'productZip', {
+      url,
+      storageBucket: ROUTE_ASSET_BUCKET,
+      storagePath: objectName,
+      fileName: `${safeName(name)}.product.zip`,
+    }),
+    url,
+    size: buffer.length,
+  };
+};
 
 const toCloudRouteItem = (item) => {
   const assetUrls = getRouteAssetUrls(item.route_data);
@@ -733,6 +916,7 @@ const toCloudRouteItem = (item) => {
     mp4: Boolean(assetUrls.mp4),
     manualMd: Boolean(assetUrls.manualMd),
     manualPdf: Boolean(assetUrls.manualPdf),
+    productZip: Boolean(assetUrls.productZip),
     assetUrls,
     cloud: true,
     routeData: item.route_data,
@@ -1055,6 +1239,7 @@ const listPublishedRoutes = async () => {
       mp4: Boolean(assetUrls.mp4),
       manualMd: Boolean(assetUrls.manualMd),
       manualPdf: Boolean(assetUrls.manualPdf),
+      productZip: Boolean(assetUrls.productZip),
       assetUrls,
       cloud: true,
       published: true,
@@ -1109,7 +1294,35 @@ const publishCloudRoute = async (payload, identity) => {
     }
     throw error;
   }
+  const zip = await uploadRouteProductZip(supabase, routeData, {id: data.id, name});
+  const {error: updateError} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .update({route_data: zip.routeData, updated_at: new Date().toISOString()})
+    .eq('id', data.id);
+  if (updateError) throw updateError;
   return {ok: true, published: data};
+};
+
+const ensurePublishedRouteProductZips = async (identity) => {
+  assertAdminIdentity(identity);
+  const supabase = requireSupabaseClient();
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .select('id,name,route_data')
+    .order('published_at', {ascending: false});
+  if (error) throw error;
+  let updated = 0;
+  for (const item of data || []) {
+    if (getRouteAssetUrls(item.route_data).productZip) continue;
+    const zip = await uploadRouteProductZip(supabase, item.route_data, {id: item.id, name: item.name});
+    const {error: updateError} = await supabase
+      .from(SUPABASE_TABLES.publishedRoutes)
+      .update({route_data: zip.routeData, updated_at: new Date().toISOString()})
+      .eq('id', item.id);
+    if (updateError) throw updateError;
+    updated += 1;
+  }
+  return {ok: true, updated, total: (data || []).length};
 };
 
 const importPublishedRoute = async (publishedId, identity) => {
@@ -1152,6 +1365,61 @@ const importPublishedRoute = async (publishedId, identity) => {
     importedRoute: importedRoute,
     routeName: importName,
   };
+};
+
+const getCloudRouteForDownload = async (routeId, identity) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法下载路线。');
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.routes)
+    .select('id,name,route_data')
+    .eq('owner_email', identity.email)
+    .eq('id', String(routeId || '').trim())
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    const notFound = new Error('未找到这条路线。');
+    notFound.status = 404;
+    throw notFound;
+  }
+  return data;
+};
+
+const getPublishedRouteForDownload = async (publishedId) => {
+  const supabase = requireSupabaseClient();
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .select('id,name,route_data')
+    .eq('id', String(publishedId || '').trim())
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    const notFound = new Error('未找到公开路线。');
+    notFound.status = 404;
+    throw notFound;
+  }
+  return data;
+};
+
+const sendZipDownload = async (res, row) => {
+  const productZip = getRouteAssetUrls(row.route_data).productZip;
+  if (productZip) {
+    res.writeHead(302, {
+      Location: productZip,
+      'Cache-Control': 'no-store',
+    });
+    res.end();
+    return;
+  }
+  const buffer = await buildRouteProductZip(row.route_data, {name: row.name});
+  const fileName = encodeURIComponent(`${safeName(row.name || 'route')}.product.zip`);
+  res.writeHead(200, {
+    'Content-Type': 'application/zip',
+    'Content-Length': buffer.length,
+    'Content-Disposition': `attachment; filename*=UTF-8''${fileName}`,
+    'Cache-Control': 'no-store',
+  });
+  res.end(buffer);
 };
 
 const deletePublishedRoute = async (publishedId, identity) => {
@@ -1743,6 +2011,49 @@ const serveStatic = (req, res, identity) => {
   fs.createReadStream(target).pipe(res);
 };
 
+const uploadExportedRouteAssets = async (payload, exported, identity) => {
+  const supabase = getSupabaseClient();
+  const routeData = payload.routeData || payload.route || null;
+  if (!supabase || !identity?.email || !routeData?.days) return null;
+  const routeId = normalizeCloudRouteId(routeData);
+  const routeName = String(routeData.name || exported.routeName || '路线').trim() || '路线';
+  const prefix = `users/${storageSafeSegment(identity.email)}/${storageSafeSegment(routeId)}`;
+  let nextRouteData = {...routeData, id: routeId, name: routeName};
+  const files = [
+    ['routeJson', exported.routeJson, 'route.json'],
+    ['videoData', exported.videoJson, 'mp4-data.json'],
+    ['manualMd', exported.manualMd, 'travel.md'],
+    ['manualPdf', exported.manualPdf, 'travel.pdf'],
+    ['mp4', exported.output, 'mp4'],
+    ['mapImage', exported.routeMapImage, 'route-map.png'],
+  ];
+  for (const [key, file, suffix] of files) {
+    if (!file || !fs.existsSync(file)) continue;
+    const objectName = `${prefix}/${key}${path.extname(file).toLowerCase() || '.' + suffix.split('.').pop()}`;
+    const url = await uploadBufferToRouteAssets(supabase, objectName, fs.readFileSync(file), contentTypeForPath(file));
+    nextRouteData = withRouteAsset(nextRouteData, key, {
+      url,
+      storageBucket: ROUTE_ASSET_BUCKET,
+      storagePath: objectName,
+      fileName: path.basename(file),
+    });
+  }
+  const zip = await uploadRouteProductZip(supabase, nextRouteData, {id: `${identity.email}-${routeId}`, name: routeName});
+  nextRouteData = zip.routeData;
+  const {error} = await supabase
+    .from(SUPABASE_TABLES.routes)
+    .upsert({
+      owner_email: identity.email,
+      id: routeId,
+      name: routeName,
+      route_data: nextRouteData,
+      map_layer: String(payload.mapLayer || 'standard').trim() || 'standard',
+      updated_at: new Date().toISOString(),
+    }, {onConflict: 'owner_email,id'});
+  if (error) throw error;
+  return getRouteAssetUrls(nextRouteData);
+};
+
 const exportRouteBundle = async (payload, routeRoot, identity) => {
   const renderVideo = payload.renderVideo === true;
   assertExportNotCancelled();
@@ -1832,7 +2143,7 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
     }
   }
 
-  return {
+  const exported = {
     ...archived,
     manualText: undefined,
     output: result.output,
@@ -1844,6 +2155,15 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
     manualPdf,
     pdfError,
   };
+  try {
+    assertExportNotCancelled();
+    setExportProgress({phase: 'assets', message: '正在上传产品资产…', percent: 96});
+    exported.assetUrls = await uploadExportedRouteAssets(payload, exported, identity);
+  } catch (error) {
+    exported.assetUploadError = error.message;
+  }
+
+  return exported;
 };
 
 const server = http.createServer(async (req, res) => {
@@ -1963,6 +2283,14 @@ const server = http.createServer(async (req, res) => {
         return send(res, Number(error.status) || 500, {ok: false, message: error.message});
       }
     }
+    if (req.method === 'POST' && url.pathname === '/api/admin/published-route-zips') {
+      try {
+        const result = await ensurePublishedRouteProductZips(identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
     if (req.method === 'GET' && url.pathname === '/api/routes') {
       const cloudRoutes = await listCloudRoutes(identity);
       if (cloudRoutes) return send(res, 200, {ok: true, routes: cloudRoutes});
@@ -1987,6 +2315,24 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/published-routes') {
       const routes = await listPublishedRoutes();
       return send(res, 200, {ok: true, routes: routes || []});
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/api/routes/') && url.pathname.endsWith('/product.zip')) {
+      try {
+        const routeId = decodeURIComponent(url.pathname.slice('/api/routes/'.length, -'/product.zip'.length));
+        const routeRow = await getCloudRouteForDownload(routeId, identity);
+        return sendZipDownload(res, routeRow);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/api/published-routes/') && url.pathname.endsWith('/product.zip')) {
+      try {
+        const publishedId = decodeURIComponent(url.pathname.slice('/api/published-routes/'.length, -'/product.zip'.length));
+        const routeRow = await getPublishedRouteForDownload(publishedId);
+        return sendZipDownload(res, routeRow);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
     }
     if (req.method === 'POST' && url.pathname === '/api/routes') {
       const payload = await readBody(req);
