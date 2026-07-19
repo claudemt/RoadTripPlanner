@@ -69,8 +69,14 @@
       getScenic(name) {
         return fetchJson(apiUrl(`/api/scenic?name=${encodeURIComponent(name || '')}`));
       },
+      listScenes() {
+        return fetchJson(apiUrl('/api/scenes'));
+      },
       saveScenic(payload) {
         return postJson('/api/scenic', payload);
+      },
+      deleteScenic(name) {
+        return fetchJson(apiUrl(`/api/scenic?name=${encodeURIComponent(name || '')}`), {method: 'DELETE'});
       },
       listRoutes() {
         return fetchJson(apiUrl('/api/routes'));
@@ -83,6 +89,12 @@
       },
       importPublishedRoute(routeId) {
         return fetchJson(apiUrl(`/api/published-routes/${encodeURIComponent(routeId)}/import`), {method: 'POST'});
+      },
+      deletePublishedRoute(routeId) {
+        return fetchJson(apiUrl(`/api/published-routes/${encodeURIComponent(routeId)}`), {method: 'DELETE'});
+      },
+      adminSummary() {
+        return fetchJson(apiUrl('/api/admin/summary'));
       },
       exportRoute(payload) {
         return postJson('/api/export-route', payload);

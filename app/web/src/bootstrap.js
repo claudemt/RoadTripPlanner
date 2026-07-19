@@ -52,9 +52,6 @@ if (accountEmail) {
   accountEmail.title = identity.error || identity.user?.email || '';
   accountEmail.dataset.state = identity.user ? 'ready' : 'error';
 }
-const accountMode = document.getElementById('accountMode');
-if (accountMode) accountMode.textContent = identity.user ? 'Caddy 身份代理' : '身份头缺失';
-
 await import('./config/amapConfig.js');
 await import('./api/localServiceClient.js');
 await import('./api/appServiceClient.js');

@@ -27,7 +27,7 @@ const HOST = String(process.env.AMAP_ROUTE_HOST || '127.0.0.1').trim() || '127.0
 const USER_EMAIL_HEADER = String(process.env.ROADTRIP_USER_EMAIL_HEADER || 'X-Auth-Request-Email').trim().toLowerCase();
 const REQUIRE_USER_EMAIL = !/^(0|false|no|off)$/i.test(String(process.env.ROADTRIP_REQUIRE_USER_EMAIL || 'true').trim());
 const FALLBACK_USER_EMAIL = String(process.env.ROADTRIP_FALLBACK_USER_EMAIL || '').trim();
-const ADMIN_EMAILS_RAW = String(process.env.ROADTRIP_ADMIN_EMAILS || 'admin@map.bestapi.best');
+const ADMIN_EMAILS_RAW = String(process.env.ROADTRIP_ADMIN_EMAILS || 'opponewsroom@gmail.com');
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const REQUIRE_SUPABASE = /^(1|true|yes|on)$/i.test(String(process.env.ROADTRIP_REQUIRE_SUPABASE || 'false').trim());
@@ -67,6 +67,13 @@ const ADMIN_EMAILS = ADMIN_EMAILS_RAW
   .filter(Boolean);
 
 const isAdminIdentity = (identity) => Boolean(identity?.email && ADMIN_EMAILS.includes(identity.email));
+
+const assertAdminIdentity = (identity) => {
+  if (isAdminIdentity(identity)) return;
+  const error = new Error('只有管理员可以执行这个操作。');
+  error.status = 403;
+  throw error;
+};
 
 const getRequestIdentity = (req) => {
   for (const headerName of USER_EMAIL_HEADER_CANDIDATES) {
@@ -849,6 +856,39 @@ const saveCloudScenic = async (payload, identity) => {
   return {ok: true, folderName: normalized, spot: toCloudScene(data)};
 };
 
+const listCloudScenes = async () => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.scenes)
+    .select('id,name,title,description,images,updated_by_email,updated_at')
+    .order('updated_at', {ascending: false})
+    .limit(300);
+  if (error) throw error;
+  return (data || []).map((item) => ({
+    id: item.id,
+    name: item.name,
+    title: item.title,
+    description: item.description || '',
+    imageCount: Array.isArray(item.images) ? item.images.length : 0,
+    updatedByEmail: item.updated_by_email,
+    updatedAt: item.updated_at,
+  }));
+};
+
+const deleteCloudScenic = async (name, identity) => {
+  assertAdminIdentity(identity);
+  const supabase = requireSupabaseClient();
+  const normalized = normalizeSceneName(name);
+  if (!normalized) throw new Error('景点名称不能为空。');
+  const {error} = await supabase
+    .from(SUPABASE_TABLES.scenes)
+    .delete()
+    .eq('normalized_name', normalized);
+  if (error) throw error;
+  return {ok: true};
+};
+
 const readCloudConfig = async () => {
   const supabase = getSupabaseClient();
   if (!supabase) return null;
@@ -1014,6 +1054,47 @@ const importPublishedRoute = async (publishedId, identity) => {
     route: data,
     importedRoute: importedRoute,
     routeName: importName,
+  };
+};
+
+const deletePublishedRoute = async (publishedId, identity) => {
+  assertAdminIdentity(identity);
+  const supabase = requireSupabaseClient();
+  const id = String(publishedId || '').trim();
+  if (!id) throw new Error('缺少公开路线 ID。');
+  const {error} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+  return {ok: true};
+};
+
+const getAdminSummary = async (identity) => {
+  assertAdminIdentity(identity);
+  const supabase = requireSupabaseClient();
+  const [routesResult, publishedResult, scenesResult] = await Promise.all([
+    supabase.from(SUPABASE_TABLES.routes).select('owner_email,id,name,updated_at').order('updated_at', {ascending: false}).limit(1000),
+    supabase.from(SUPABASE_TABLES.publishedRoutes).select('id,name,published_by_email,published_at,updated_at').order('published_at', {ascending: false}).limit(300),
+    supabase.from(SUPABASE_TABLES.scenes).select('id,name,title,updated_by_email,updated_at').order('updated_at', {ascending: false}).limit(300),
+  ]);
+  for (const result of [routesResult, publishedResult, scenesResult]) {
+    if (result.error) throw result.error;
+  }
+  const users = new Map();
+  (routesResult.data || []).forEach((item) => {
+    const email = item.owner_email || '';
+    if (!email) return;
+    const current = users.get(email) || {email, routeCount: 0, lastRouteAt: null};
+    current.routeCount += 1;
+    if (!current.lastRouteAt || String(item.updated_at || '') > current.lastRouteAt) current.lastRouteAt = item.updated_at;
+    users.set(email, current);
+  });
+  return {
+    ok: true,
+    users: [...users.values()].sort((a, b) => String(b.lastRouteAt || '').localeCompare(String(a.lastRouteAt || ''))),
+    publishedRoutes: publishedResult.data || [],
+    scenes: scenesResult.data || [],
   };
 };
 
@@ -1752,6 +1833,10 @@ const server = http.createServer(async (req, res) => {
       const result = await getCloudScenic(name);
       return send(res, 200, result || {ok: true, spot: null});
     }
+    if (req.method === 'GET' && url.pathname === '/api/scenes') {
+      const scenes = await listCloudScenes();
+      return send(res, 200, {ok: true, scenes: scenes || []});
+    }
     if (req.method === 'POST' && url.pathname === '/api/scenic') {
       const payload = await readBody(req);
       if (isSupabaseConfigured()) {
@@ -1760,6 +1845,22 @@ const server = http.createServer(async (req, res) => {
       }
       const result = writeSceneInfo(payload);
       return send(res, 200, {ok: true, ...result});
+    }
+    if (req.method === 'DELETE' && url.pathname === '/api/scenic') {
+      try {
+        const result = await deleteCloudScenic(url.searchParams.get('name') || '', identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/admin/summary') {
+      try {
+        const result = await getAdminSummary(identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
     }
     if (req.method === 'GET' && url.pathname === '/api/routes') {
       const cloudRoutes = await listCloudRoutes(identity);
@@ -1804,6 +1905,15 @@ const server = http.createServer(async (req, res) => {
       const publishedId = decodeURIComponent(url.pathname.slice('/api/published-routes/'.length, -'/import'.length));
       const result = await importPublishedRoute(publishedId, identity);
       return send(res, 200, result);
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/published-routes/')) {
+      const publishedId = decodeURIComponent(url.pathname.slice('/api/published-routes/'.length));
+      try {
+        const result = await deletePublishedRoute(publishedId, identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
     }
     if (req.method === 'DELETE' && url.pathname.startsWith('/api/routes/')) {
       const routeId = decodeURIComponent(url.pathname.slice('/api/routes/'.length));

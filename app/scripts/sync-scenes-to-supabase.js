@@ -8,7 +8,7 @@ const SCENE_ROOT = path.join(DATA_ROOT, 'scenes');
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_SCENE_IMAGE_BUCKET || 'roadtrip-scene-images').trim();
-const UPDATED_BY_EMAIL = String(process.env.ROADTRIP_SCENE_SEED_EMAIL || 'admin@map.bestapi.best').trim().toLowerCase();
+const UPDATED_BY_EMAIL = String(process.env.ROADTRIP_SCENE_SEED_EMAIL || 'opponewsroom@gmail.com').trim().toLowerCase();
 
 const normalizeSceneName = (value) =>
   String(value || '')

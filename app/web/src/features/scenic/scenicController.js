@@ -30,6 +30,15 @@
     async function saveFromEditor(point) {
       const description = el('pointScenicDescription').value.trim();
       const files = [...(el('pointScenicImages').files || [])];
+      return saveScenicInfo({
+        name: point.name,
+        title: point.name,
+        description,
+        files
+      });
+    }
+
+    async function saveScenicInfo({name, title, description, files = []}) {
       if (!description && !files.length) return null;
       if (files.length > 6) throw new Error('每次最多上传 6 张图片');
       const invalid = files.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024);
@@ -39,14 +48,14 @@
         images.push({name: file.name, dataUrl: await readFileAsDataUrl(file)});
       }
       const {response, data: result} = await localService.saveScenic({
-        name: point.name,
-        title: point.name,
+        name,
+        title: title || name,
         description,
         images
       });
       if (!response.ok || !result.ok) throw new Error(result.message || '保存景点介绍失败');
       window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
-        .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(point.name));
+        .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(name));
       window.SCENIC_SPOTS.push(result.spot);
       loadedFolders[result.folderName] = Promise.resolve();
       return result;
@@ -154,6 +163,7 @@
       isShared: () => Boolean(localService.capabilities?.sharedScenes),
       updateImageList,
       saveFromEditor,
+      saveScenicInfo,
       ensureInfo,
       showSpotInfo,
       openLightbox,

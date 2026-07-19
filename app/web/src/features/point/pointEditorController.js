@@ -135,7 +135,7 @@
         const scenic = await scenicController.saveFromEditor(point);
         if (scenic) {
           toast(scenicController.isShared?.()
-            ? '景点介绍已更新，并记录了共同维护版本。'
+            ? '景点介绍已更新，并发布为公共介绍。'
             : '景点介绍已保存到本地。');
         }
       } catch (error) {
