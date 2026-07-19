@@ -23,6 +23,78 @@ const safeSegment = (value) =>
 const sha256 = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 
+const crcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+const crc32 = (buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of buffer) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const zipDateTime = (date = new Date()) => {
+  const year = Math.max(1980, date.getFullYear());
+  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const dosDate = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return {dosTime, dosDate};
+};
+
+const createZipBuffer = (entries) => {
+  const zipEntries = entries.filter((item) => item?.name && item.data != null);
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  const now = zipDateTime();
+  for (const entry of zipEntries) {
+    const name = Buffer.from(String(entry.name).replace(/^\/+/, ''), 'utf8');
+    const data = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(String(entry.data));
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(now.dosTime, 10);
+    local.writeUInt16LE(now.dosDate, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    localParts.push(local, name, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(now.dosTime, 12);
+    central.writeUInt16LE(now.dosDate, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+    offset += local.length + name.length + data.length;
+  }
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(zipEntries.length, 8);
+  end.writeUInt16LE(zipEntries.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, ...centralParts, end]);
+};
+
 const contentTypeForName = (name = '') => {
   const ext = path.extname(name).toLowerCase();
   if (ext === '.json') return 'application/json; charset=utf-8';
@@ -132,6 +204,21 @@ async function uploadDescriptor(supabase, {bucket, prefix, key, descriptor, rout
   return {storageBucket: bucket, storagePath, sha256: hash, size: buffer.length, contentType, fileName};
 }
 
+async function uploadBuffer(supabase, {bucket, prefix, key, buffer, contentType, fileName}) {
+  const hash = sha256(buffer);
+  const ext = path.extname(fileName || '').toLowerCase() || extensionForType(contentType);
+  const storagePath = `${prefix}/${canonicalAssetKey(key)}/${hash}${ext}`;
+  if (!DRY_RUN) {
+    const {error} = await supabase.storage.from(bucket).upload(storagePath, buffer, {
+      contentType,
+      cacheControl: '31536000',
+      upsert: false,
+    });
+    if (error && !/exist|duplicate|already/i.test(error.message || '')) throw error;
+  }
+  return {storageBucket: bucket, storagePath, sha256: hash, size: buffer.length, contentType, fileName};
+}
+
 function toBasicRouteData(routeData) {
   return {
     id: routeData?.id || routeData?.name || 'route',
@@ -143,6 +230,30 @@ function toBasicRouteData(routeData) {
       to: day.to,
     })),
   };
+}
+
+async function buildProductZip(supabase, routeData, assets, routeName) {
+  const name = routeName || routeData?.name || '路线';
+  const entries = [
+    {name: `${safeSegment(name)}.route.json`, data: JSON.stringify(toBasicRouteData(routeData), null, 2)},
+  ];
+  for (const [key, suffix] of [
+    ['videoData', 'mp4-data.json'],
+    ['manualMd', 'travel.md'],
+    ['manualPdf', 'travel.pdf'],
+    ['mp4', 'mp4'],
+    ['mapImage', 'route-map.png'],
+  ]) {
+    const descriptor = assets[key];
+    if (!descriptor) continue;
+    try {
+      const data = await downloadDescriptor(supabase, descriptor);
+      if (data) entries.push({name: descriptor.fileName || `${safeSegment(name)}.${suffix}`, data});
+    } catch (error) {
+      console.warn(`skip product zip asset ${key}: ${error.message || error}`);
+    }
+  }
+  return createZipBuffer(entries);
 }
 
 async function migrateRouteData(supabase, routeData, {bucket, prefix, routeName}) {
@@ -185,6 +296,18 @@ async function migrateRouteData(supabase, routeData, {bucket, prefix, routeName}
     changed = true;
   }
   if (JSON.stringify(pickAssetMap(routeData?._assets || {})) !== JSON.stringify(routeData?._assets || {})) changed = true;
+  if (changed || !nextAssets.productZip || !isMigrated(nextAssets.productZip, bucket)) {
+    const buffer = await buildProductZip(supabase, routeData, nextAssets, routeName);
+    nextAssets.productZip = await uploadBuffer(supabase, {
+      bucket,
+      prefix,
+      key: 'productZip',
+      buffer,
+      contentType: 'application/zip',
+      fileName: `${safeSegment(routeName || routeData?.name || 'route')}.product.zip`,
+    });
+    changed = true;
+  }
   return changed ? {...routeData, _assets: nextAssets} : routeData;
 }
 
