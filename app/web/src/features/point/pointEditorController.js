@@ -16,6 +16,7 @@
     onChanged
   }) {
     let context = null;
+    let importedScenic = false;
     const transportModes = ['drive', 'ride', 'walk'];
 
     function normalizeTransportMode(value) {
@@ -71,6 +72,7 @@
           return null;
         }
         el('pointScenicDescription').value = spot.description || '';
+        importedScenic = true;
         toast(`已导入库中最新版 v${spot.version || 1}。`);
         return spot;
       } catch (error) {
@@ -109,6 +111,7 @@
       el('pointTransportSection')?.toggleAttribute('hidden', !shouldShowTransport(nextContext));
       setTransportMode(point?.transportMode || 'drive');
       el('pointScenicDescription').value = '';
+      importedScenic = false;
       el('pointScenicImages').value = '';
       if (el('pointPublishScenic')) el('pointPublishScenic').checked = false;
       setScenicVersion(null);
@@ -117,7 +120,6 @@
         scenicController.getLibraryInfo(point.name).then((spot) => {
           if (!context) return;
           setScenicVersion(spot);
-          el('pointScenicDescription').value = spot?.description || '';
         }).catch(() => {});
       }
       placeSearch.closeSuggestions();
@@ -156,11 +158,11 @@
         day.waypoints.push(point);
       }
       try {
-        const scenic = await scenicController.saveFromEditor(point);
+        const scenic = await scenicController.saveFromEditor(point, {importFromLibrary: importedScenic});
         if (scenic) {
-          toast(scenicController.isShared?.()
-            ? `景点介绍已发布为 v${scenic.spot?.version || scenic.version || ''}。`
-            : '景点介绍已保存到本地。');
+          toast(scenic.spot
+            ? `景点介绍已发布为 v${scenic.spot.version || scenic.version || ''}。`
+            : '景点介绍已保存到我的景点。');
         }
       } catch (error) {
         return toast('景点介绍保存失败：' + error.message);

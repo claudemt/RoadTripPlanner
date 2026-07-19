@@ -30,6 +30,10 @@
       return archivedRoutes;
     }
 
+    function getPublishedRoutes() {
+      return publishedRoutes;
+    }
+
     function setStatus(message) {
       const status = el('routeManageStatus');
       if (status) status.textContent = message || '';
@@ -292,7 +296,7 @@
       }
     }
 
-    return {getRoutes, refresh, load, publishCurrent, publishRouteById, importPublished};
+    return {getRoutes, getPublishedRoutes, refresh, load, publishCurrent, publishRouteById, importPublished};
   }
 
   window.ArchiveController = {create};

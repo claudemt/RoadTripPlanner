@@ -110,6 +110,11 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     let jsonSyncTimer = null;
     let cloudSaveTimer = null;
     let accountView = 'routes';
+    let accountRouteMode = 'mine';
+    let accountSceneMode = 'mine';
+    let accountUserScenes = [];
+    let accountPublicScenes = [];
+    let eventsBound = false;
     const archiveController = window.ArchiveController.create({
       el,
       localService,
@@ -208,6 +213,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function bindEvents() {
+      if (eventsBound) return;
+      eventsBound = true;
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.onclick = () => setTab(btn.dataset.tab);
       });
@@ -270,7 +277,14 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       document.querySelectorAll('[data-account-view]').forEach((button) => {
         button.onclick = () => setAccountView(button.dataset.accountView);
       });
-      if (el('accountPublishSceneBtn')) el('accountPublishSceneBtn').onclick = publishSceneFromAccount;
+      document.querySelectorAll('[data-route-content]').forEach((button) => {
+        button.onclick = () => setAccountRouteMode(button.dataset.routeContent);
+      });
+      document.querySelectorAll('[data-scene-content]').forEach((button) => {
+        button.onclick = () => setAccountSceneMode(button.dataset.sceneContent);
+      });
+      if (el('accountSaveSceneBtn')) el('accountSaveSceneBtn').onclick = saveSceneFromAccount;
+      if (el('accountCancelSceneBtn')) el('accountCancelSceneBtn').onclick = resetAccountSceneEditor;
       if (el('adminSaveConfigBtn')) {
         el('adminSaveConfigBtn').onclick = () => saveAmapConfigFromInputs('adminAmapKeyInput', 'adminAmapSecurityInput', 'adminConfigStatus');
       }
@@ -305,6 +319,26 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       refreshAccountCenter();
     }
 
+    function setAccountRouteMode(mode) {
+      accountRouteMode = mode === 'public' ? 'public' : 'mine';
+      document.querySelectorAll('[data-route-content]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.routeContent === accountRouteMode);
+      });
+      el('accountRouteMinePane')?.classList.toggle('active', accountRouteMode === 'mine');
+      el('accountRoutePublicPane')?.classList.toggle('active', accountRouteMode === 'public');
+      renderAccountRoutes();
+    }
+
+    function setAccountSceneMode(mode) {
+      accountSceneMode = mode === 'public' ? 'public' : 'mine';
+      document.querySelectorAll('[data-scene-content]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.sceneContent === accountSceneMode);
+      });
+      el('accountSceneMinePane')?.classList.toggle('active', accountSceneMode === 'mine');
+      el('accountScenePublicPane')?.classList.toggle('active', accountSceneMode === 'public');
+      renderAccountScenes();
+    }
+
     async function refreshAccountCenter() {
       if (!el('accountCenter')?.classList.contains('open')) return;
       if (accountView === 'routes') {
@@ -324,26 +358,49 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function renderAccountRoutes() {
       const box = el('accountRouteList');
-      if (!box) return;
+      const publicBox = el('accountPublicRouteList');
+      if (!box || !publicBox) return;
       const routes = routeBook.routes || [];
+      const publishedRoutes = archiveController.getPublishedRoutes?.() || [];
       el('accountRouteCount').textContent = String(routes.length);
       if (!routes.length) {
         box.innerHTML = '<div class="account-empty">还没有路线。</div>';
-        return;
+      } else {
+        box.innerHTML = routes.map((item) => `
+          <div class="account-item route-account-item">
+            <div class="account-item-main">
+              <strong>${escapeHtml(cleanRouteName(item.name) || '未命名路线')}</strong>
+              <span>${escapeHtml(item.days?.length || 0)} 天</span>
+            </div>
+            <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt || item.archivedAt))}</span>
+            <div class="account-item-actions">
+              <button class="small primary" onclick="accountOpenRoute('${escapeJsAttr(item.id)}')">打开</button>
+              <button class="small" onclick="accountRenameRoute('${escapeJsAttr(item.id)}')">改名</button>
+              <button class="small" onclick="accountPublishRoute('${escapeJsAttr(item.id)}')">发布</button>
+              <button class="small danger" onclick="accountDeleteRoute('${escapeJsAttr(item.id)}')">删除</button>
+              ${renderAccountAssetButtons(item)}
+            </div>
+          </div>
+        `).join('');
       }
-      box.innerHTML = routes.map((item) => `
-        <div class="account-item route-account-item">
-          <div class="account-item-main">
-            <strong>${escapeHtml(cleanRouteName(item.name) || '未命名路线')}</strong>
-            <span>${escapeHtml(item.days?.length || 0)} 天 · ${escapeHtml(item.id || '')}</span>
-          </div>
-          <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt || item.archivedAt))}</span>
-          <div class="account-item-actions">
-            <button class="small primary" onclick="accountOpenRoute('${escapeJsAttr(item.id)}')">打开</button>
-            ${renderAccountAssetButtons(item)}
-          </div>
-        </div>
-      `).join('');
+      publicBox.innerHTML = publishedRoutes.length
+        ? publishedRoutes.map((item) => {
+          const zipUrl = item.assetUrls?.productZip || localService.publishedRouteProductZipUrl?.(item.id);
+          return `
+            <div class="account-item route-account-item">
+              <div class="account-item-main">
+                <strong>${escapeHtml(item.name || '未命名路线')}</strong>
+                <span>${escapeHtml(item.routeData?.days?.length || 0)} 天 · ${escapeHtml(item.publishedByEmail || '未知用户')}</span>
+              </div>
+              <span class="account-item-time">${escapeHtml(routeTime(item.archivedAt))}</span>
+              <div class="account-item-actions">
+                <button class="small primary" onclick="accountImportPublished('${escapeJsAttr(item.id)}')">导入</button>
+                ${zipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(zipUrl)}', '_blank')">ZIP</button>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')
+        : '<div class="account-empty">公共路线库暂时为空。</div>';
     }
 
     function renderAccountAssetButtons(item) {
@@ -376,58 +433,86 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     async function renderAccountScenes() {
-      const box = el('accountSceneList');
-      if (!box) return;
+      const mineBox = el('accountSceneList');
+      const publicBox = el('accountPublicSceneList');
+      if (!mineBox || !publicBox) return;
       try {
-        const {response, data} = await localService.listScenes();
-        if (!response.ok || !data?.ok) throw new Error(data?.message || '无法读取景点介绍');
-        const scenes = data.scenes || [];
-        el('accountSceneCount').textContent = String(scenes.length);
-        if (!scenes.length) {
-          box.innerHTML = '<div class="account-empty">还没有公共景点介绍。</div>';
-          return;
-        }
-        box.innerHTML = scenes.map((item) => `
+        const [mineResult, publicResult] = await Promise.all([
+          localService.listUserScenes(),
+          localService.listScenes(),
+        ]);
+        if (!mineResult.response.ok || !mineResult.data?.ok) throw new Error(mineResult.data?.message || '无法读取我的景点介绍');
+        if (!publicResult.response.ok || !publicResult.data?.ok) throw new Error(publicResult.data?.message || '无法读取公共景点介绍');
+        accountUserScenes = mineResult.data.scenes || [];
+        accountPublicScenes = publicResult.data.scenes || [];
+        el('accountSceneCount').textContent = String(accountUserScenes.length);
+        mineBox.innerHTML = accountUserScenes.length ? accountUserScenes.map((item) => `
           <div class="account-item admin-content-item">
             <div class="account-item-main">
               <strong>${escapeHtml(item.title || item.name || '未命名景点')}</strong>
-              <span>${escapeHtml(item.updatedByEmail || '未知')} · 图片 ${escapeHtml(item.imageCount || 0)}</span>
+              <span>${item.sourceVersion ? `源自公共 v${escapeHtml(item.sourceVersion)} · ` : ''}图片 ${escapeHtml(item.imageCount || 0)}</span>
             </div>
+            <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt))}</span>
             <div class="account-item-actions">
-              <button class="small primary" onclick="showSpotInfo('${escapeJsAttr(item.name || item.title)}')">查看</button>
-              <button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">Diff</button>
-              ${runtime.isAdmin ? `<button class="small danger" onclick="accountDeleteScene('${escapeJsAttr(item.name || item.title)}')">删除</button>` : ''}
+              <button class="small primary" onclick="accountPreviewUserScene('${escapeJsAttr(item.id)}')">查看</button>
+              <button class="small" onclick="accountEditUserScene('${escapeJsAttr(item.id)}')">编辑</button>
+              <button class="small" onclick="accountPublishUserScene('${escapeJsAttr(item.id)}')">发布</button>
+              <button class="small danger" onclick="accountDeleteUserScene('${escapeJsAttr(item.id)}')">删除</button>
             </div>
           </div>
-        `).join('');
+        `).join('') : '<div class="account-empty">还没有个人景点介绍。</div>';
+        publicBox.innerHTML = accountPublicScenes.length ? accountPublicScenes.map((item) => `
+          <div class="account-item admin-content-item">
+            <div class="account-item-main">
+              <strong>${escapeHtml(item.title || item.name || '未命名景点')}</strong>
+              <span>v${escapeHtml(item.version || 1)} · ${escapeHtml(item.updatedByEmail || '未知用户')}</span>
+            </div>
+            <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt))}</span>
+            <div class="account-item-actions">
+              <button class="small primary" onclick="showSpotInfo('${escapeJsAttr(item.name || item.title)}')">查看</button>
+              <button class="small" onclick="accountImportScene('${escapeJsAttr(item.name || item.title)}')">导入</button>
+              <button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">版本</button>
+            </div>
+          </div>
+        `).join('') : '<div class="account-empty">公共景点库暂时为空。</div>';
       } catch (error) {
-        box.innerHTML = `<div class="account-empty">读取景点介绍失败：${escapeHtml(error.message)}</div>`;
+        mineBox.innerHTML = `<div class="account-empty">读取景点介绍失败：${escapeHtml(error.message)}</div>`;
+        publicBox.innerHTML = mineBox.innerHTML;
       }
     }
 
-    async function publishSceneFromAccount() {
+    function resetAccountSceneEditor() {
+      el('accountSceneId').value = '';
+      el('accountSceneName').value = '';
+      el('accountSceneDescription').value = '';
+      el('accountSceneImages').value = '';
+      el('accountCancelSceneBtn').hidden = true;
+      el('accountSaveSceneBtn').textContent = '保存';
+      el('accountSceneStatus').textContent = '内容仅自己可见，主动发布后才会进入公共库。';
+    }
+
+    async function saveSceneFromAccount() {
+      const id = el('accountSceneId').value.trim();
       const name = el('accountSceneName').value.trim();
       const description = el('accountSceneDescription').value.trim();
       const files = [...(el('accountSceneImages').files || [])];
       if (!name) return toast('请填写景点名称。');
       try {
-        const result = await scenicController.saveScenicInfo({name, title: name, description, files});
-        if (!result) return toast('请填写介绍或选择图片。');
-        el('accountSceneName').value = '';
-        el('accountSceneDescription').value = '';
-        el('accountSceneImages').value = '';
-        el('accountSceneStatus').textContent = `已发布：${name}`;
+        await scenicController.saveUserScenicInfo({id, name, title: name, description, files});
+        resetAccountSceneEditor();
+        el('accountSceneStatus').textContent = `已保存：${name}`;
         await renderAccountScenes();
-        toast('景点介绍已发布。');
+        toast('景点介绍已保存到我的景点。');
       } catch (error) {
-        toast('发布景点失败：' + error.message);
+        toast('保存景点失败：' + error.message);
       }
     }
 
     async function refreshAdminDashboard() {
       if (!runtime.isAdmin) return;
       const usersBox = el('adminUserList');
-      const contentBox = el('adminPublicContentList');
+      const routesBox = el('adminPublishedRouteList');
+      const scenesBox = el('adminPublishedSceneList');
       try {
         const config = await loadConfigFromServer();
         if (config?.configured) {
@@ -440,8 +525,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         usersBox.innerHTML = (data.users || []).length
           ? data.users.map((item) => `
             <div class="account-item">
-              <div class="account-item-main"><strong>${escapeHtml(item.email)}</strong><span>路线 ${escapeHtml(item.routeCount || 0)}</span></div>
-              <span class="account-item-time">${escapeHtml(routeTime(item.lastRouteAt))}</span>
+              <div class="account-item-main"><strong>${escapeHtml(item.email)}</strong><span>路线 ${escapeHtml(item.routeCount || 0)} · 景点 ${escapeHtml(item.sceneCount || 0)}</span></div>
+              <span class="account-item-time">${escapeHtml(routeTime(item.lastRouteAt || item.lastSceneAt))}</span>
             </div>
           `).join('')
           : '<div class="account-empty">还没有用户路线数据。</div>';
@@ -457,7 +542,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
             <div class="account-item-actions"><button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">Diff</button><button class="small danger" onclick="accountDeleteScene('${escapeJsAttr(item.name || item.title)}')">删除</button></div>
           </div>
         `).join('');
-        contentBox.innerHTML = routes + scenes || '<div class="account-empty">还没有公共内容。</div>';
+        routesBox.innerHTML = routes || '<div class="account-empty">还没有公共路线。</div>';
+        scenesBox.innerHTML = scenes || '<div class="account-empty">还没有公共景点。</div>';
       } catch (error) {
         if (usersBox) usersBox.innerHTML = `<div class="account-empty">读取管理数据失败：${escapeHtml(error.message)}</div>`;
       }
@@ -563,6 +649,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function openSetupOverlay(message) {
+      if (localService.capabilities?.editableMapConfig === false && !runtime.isAdmin) {
+        showMapLoadFailure(message || '请联系管理员检查地图配置。');
+        return;
+      }
       el('setupKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
       el('setupSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
       const cloudManaged = localService.capabilities?.editableMapConfig === false;
@@ -588,6 +678,20 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function closeSetupOverlay() {
       el('setupOverlay').classList.remove('open');
+    }
+
+    function showMapLoadFailure(message) {
+      closeSetupOverlay();
+      const placeholder = el('mapPlaceholder');
+      if (!placeholder) return;
+      placeholder.classList.add('show');
+      placeholder.innerHTML = `
+        <strong>地图加载失败</strong>
+        <p>${escapeHtml(message || '请检查网络后刷新页面。')}</p>
+        ${runtime.isAdmin ? '<button class="primary" id="mapFailureConfigBtn" type="button">配置高德 Key</button>' : ''}
+      `;
+      const configButton = el('mapFailureConfigBtn');
+      if (configButton) configButton.onclick = () => openSetupOverlay('请检查 Key、安全密钥和域名白名单。');
     }
 
     function openConfigModal() {
@@ -1094,12 +1198,69 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     window.accountPublishRoute = async function(routeId) {
       await archiveController.publishRouteById(routeId);
-      await refreshAdminDashboard();
+      await refreshArchivedRoutes();
+      renderAccountRoutes();
     };
 
     window.accountImportPublished = async function(routeId) {
       await archiveController.importPublished(routeId);
+      setAccountRouteMode('mine');
       await renderAccountRoutes();
+    };
+
+    window.accountPreviewUserScene = function(sceneId) {
+      const scene = accountUserScenes.find((item) => item.id === sceneId);
+      if (!scene) return;
+      el('spotTitle').textContent = scene.title || scene.name || '景点介绍';
+      const images = (scene.images || []).map((source) =>
+        `<img src="${escapeAttr(source)}" alt="${escapeAttr(scene.title || scene.name)}" onclick="openLightbox('${escapeJsAttr(source)}')">`
+      ).join('');
+      el('spotBody').innerHTML = `<div class="spot-images">${images}</div><div class="spot-text">${escapeHtml(scene.description || '暂无介绍')}</div>`;
+      el('spotPanel').classList.add('open');
+    };
+
+    window.accountEditUserScene = function(sceneId) {
+      const scene = accountUserScenes.find((item) => item.id === sceneId);
+      if (!scene) return;
+      setAccountSceneMode('mine');
+      el('accountSceneId').value = scene.id;
+      el('accountSceneName').value = scene.name || scene.title || '';
+      el('accountSceneDescription').value = scene.description || '';
+      el('accountSceneImages').value = '';
+      el('accountCancelSceneBtn').hidden = false;
+      el('accountSaveSceneBtn').textContent = '保存修改';
+      el('accountSceneStatus').textContent = `正在编辑：${scene.name || scene.title}`;
+      el('accountSceneName').focus();
+    };
+
+    window.accountDeleteUserScene = async function(sceneId) {
+      const scene = accountUserScenes.find((item) => item.id === sceneId);
+      if (!scene || !confirm(`删除个人景点介绍“${scene.name || scene.title}”？`)) return;
+      const {response, data} = await localService.deleteUserScene(sceneId);
+      if (!response.ok || !data?.ok) return toast('删除失败：' + (data?.message || '请重试'));
+      if (el('accountSceneId').value === sceneId) resetAccountSceneEditor();
+      await renderAccountScenes();
+      toast('个人景点介绍已删除。');
+    };
+
+    window.accountPublishUserScene = async function(sceneId) {
+      const scene = accountUserScenes.find((item) => item.id === sceneId);
+      if (!scene) return;
+      const changeNote = prompt('本版备注（可留空）', '') ?? null;
+      if (changeNote === null) return;
+      const {response, data} = await localService.publishUserScene(sceneId, changeNote);
+      if (!response.ok || !data?.ok) return toast('发布失败：' + (data?.message || '请重试'));
+      await renderAccountScenes();
+      toast(data.unchanged ? '公共库已是相同内容。' : `已发布为 v${data.version}。`);
+    };
+
+    window.accountImportScene = async function(name) {
+      if (!confirm(`将公共景点“${name}”导入到我的景点？`)) return;
+      const {response, data} = await localService.importScene(name);
+      if (!response.ok || !data?.ok) return toast('导入失败：' + (data?.message || '请重试'));
+      setAccountSceneMode('mine');
+      await renderAccountScenes();
+      toast('已导入到我的景点。');
     };
 
     window.accountDeletePublished = async function(routeId) {
@@ -1129,9 +1290,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           ? revisions.map((item) => `
             <div class="archive-item">
               <div class="archive-item-head">
-                <span>${escapeHtml(routeTime(item.createdAt))}</span>
+                <span>v${escapeHtml(item.version || 1)} · ${escapeHtml(routeTime(item.createdAt))}</span>
                 <span class="cloud-save-state">${escapeHtml(item.editedByEmail || '未知')}</span>
               </div>
+              ${item.changeNote ? `<div class="archive-item-sub">${escapeHtml(item.changeNote)}</div>` : ''}
               <div class="diff-list">
                 ${(item.diff || []).map((line) => `<div class="diff-line ${escapeAttr(line.type === 'add' ? 'add' : line.type === 'remove' ? 'remove' : '')}">${escapeHtml(line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  ')}${escapeHtml(line.text || '')}</div>`).join('')}
               </div>
@@ -1273,6 +1435,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function bootstrapUiWithoutMap() {
       // Allow configuring before map is ready.
+      bindEvents();
       if (el('configBtn')) el('configBtn').onclick = openConfigModal;
       el('configCloseBtn').onclick = () => el('configModal').classList.remove('open');
       el('saveConfigBtn').onclick = saveAmapConfig;
@@ -1318,6 +1481,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     async function startApp() {
       bootstrapUiWithoutMap();
+      setLoading('地图加载中', {percent: 10});
 
       if (location.protocol === 'file:') {
         const up = await ensureServiceOrExplain();
@@ -1334,6 +1498,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
 
       const remote = await loadConfigFromServer();
+      setLoading('地图加载中', {percent: 30});
       if (remote?.configured && remote.key && remote.securityJsCode) {
         localStorage.setItem('amap-planner-config', JSON.stringify({ key: remote.key, securityJsCode: remote.securityJsCode }));
         window.AMAP_PLANNER_CONFIG = { key: remote.key, securityJsCode: remote.securityJsCode };
@@ -1341,25 +1506,32 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
 
       await refreshArchivedRoutes({autoSelectFirst: isMostlyBlankRoute(route)});
+      setLoading('地图加载中', {percent: 50});
 
       if (!hasAmapConfig()) {
-        openSetupOverlay(localService.capabilities?.editableMapConfig === false
-          ? '站点尚未配置高德地图。请联系站点管理员填写 Key。'
-          : '第一次使用：请配置高德 Web JS API Key 与安全密钥，然后加载交互地图。');
+        hideLoading();
+        if (runtime.isAdmin) {
+          openSetupOverlay('首次使用，请配置高德 Web JS API Key 与安全密钥。');
+        } else {
+          showMapLoadFailure('管理员尚未完成地图配置。');
+        }
         return;
       }
 
       try {
         el('mapPlaceholder')?.classList.remove('show');
-        el('setupStatus') && (el('setupStatus').textContent = '正在加载高德地图…');
+        setLoading('地图加载中', {percent: 68});
         await loadAmap();
+        setLoading('地图加载中', {percent: 88});
         await initMap();
+        setLoading('地图加载中', {percent: 100});
+        setTimeout(hideLoading, 180);
         toast('地图加载成功');
       } catch (error) {
-        el('mapPlaceholder')?.classList.add('show');
+        hideLoading();
         const targetDomain = localService.capabilities?.mode === 'cloud' ? location.hostname : '127.0.0.1 / localhost';
-        openSetupOverlay((error && error.message ? error.message + '。' : '') + `请检查 Key、安全密钥、网络与域名白名单（${targetDomain}）。`);
-        toast('高德地图加载失败，请重新配置。');
+        showMapLoadFailure((error && error.message ? error.message + '。' : '') + `请检查网络${runtime.isAdmin ? `、Key、安全密钥和域名白名单（${targetDomain}）` : '，或联系管理员'}。`);
+        toast('地图加载失败');
       }
     }
 

@@ -135,8 +135,7 @@
                 <span class="day-total">${formatTripMetric(dayDistance, dayDuration)}</span>
               </div>
               <div class="day-actions">
-                ${currentRouteView === 'all' ? `<button class="small" data-add-day-after="${dayIndex}" title="在这一天后面增加一天">后加</button>` : ''}
-                <button class="small primary" onclick="openPointEditor({mode:'appendWaypoint',dayIndex:${dayIndex}})">添</button>
+                ${currentRouteView === 'all' ? `<button class="small primary" data-add-day-after="${dayIndex}" title="在这一天后面增加一天">后加</button>` : ''}
                 <button class="small" onclick="renameDayPrompt(${dayIndex})">改</button>
                 <button class="small danger" onclick="deleteDay(${dayIndex})">删</button>
               </div>

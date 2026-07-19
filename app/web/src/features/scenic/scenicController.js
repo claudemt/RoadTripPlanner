@@ -27,28 +27,60 @@
       });
     }
 
-    async function saveFromEditor(point) {
+    async function saveFromEditor(point, options = {}) {
       const description = el('pointScenicDescription').value.trim();
       const files = [...(el('pointScenicImages').files || [])];
       const shouldPublish = Boolean(el('pointPublishScenic')?.checked);
-      if (!shouldPublish) return null;
-      return saveScenicInfo({
+      if (!description && !files.length) return null;
+      let imported = null;
+      if (options.importFromLibrary) {
+        const {response, data} = await localService.importScene(point.name);
+        if (!response.ok || !data?.ok) throw new Error(data?.message || '导入公共景点介绍失败');
+        imported = data.scene;
+      }
+      const saved = await saveUserScenicInfo({
+        id: imported?.id,
         name: point.name,
         title: point.name,
         description,
         files
       });
+      if (!shouldPublish) return {privateScene: saved.scene};
+      const {response, data} = await localService.publishUserScene(saved.scene.id, '从行程编辑器发布');
+      if (!response.ok || !data?.ok) throw new Error(data?.message || '发布景点介绍失败');
+      if (data.spot) {
+        window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
+          .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(point.name));
+        window.SCENIC_SPOTS.push(data.spot);
+      }
+      return {...data, privateScene: saved.scene};
     }
 
-    async function saveScenicInfo({name, title, description, files = []}) {
-      if (!description && !files.length) return null;
+    async function prepareImages(files) {
       if (files.length > 6) throw new Error('每次最多上传 6 张图片');
       const invalid = files.find((file) => !file.type.startsWith('image/') || file.size > 8 * 1024 * 1024);
       if (invalid) throw new Error('图片必须小于 8MB，且使用常见图片格式');
       const images = [];
-      for (const file of files) {
-        images.push({name: file.name, dataUrl: await readFileAsDataUrl(file)});
-      }
+      for (const file of files) images.push({name: file.name, dataUrl: await readFileAsDataUrl(file)});
+      return images;
+    }
+
+    async function saveUserScenicInfo({id, name, title, description, files = []}) {
+      const images = await prepareImages(files);
+      const {response, data} = await localService.saveUserScene({
+        id: id || undefined,
+        name,
+        title: title || name,
+        description,
+        images
+      });
+      if (!response.ok || !data?.ok) throw new Error(data?.message || '保存个人景点介绍失败');
+      return data;
+    }
+
+    async function saveScenicInfo({name, title, description, files = []}) {
+      if (!description && !files.length) return null;
+      const images = await prepareImages(files);
       const {response, data: result} = await localService.saveScenic({
         name,
         title: title || name,
@@ -179,6 +211,7 @@
       updateImageList,
       saveFromEditor,
       saveScenicInfo,
+      saveUserScenicInfo,
       ensureInfo,
       getLibraryInfo,
       showSpotInfo,

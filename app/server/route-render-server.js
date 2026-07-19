@@ -33,6 +33,7 @@ const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const REQUIRE_SUPABASE = /^(1|true|yes|on)$/i.test(String(process.env.ROADTRIP_REQUIRE_SUPABASE || 'false').trim());
 const SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_SCENE_IMAGE_BUCKET || 'roadtrip-scene-images').trim();
+const PRIVATE_SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_PRIVATE_SCENE_IMAGE_BUCKET || 'roadtrip-scene-private').trim();
 const LEGACY_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_ROUTE_ASSET_BUCKET || 'roadtrip-route-assets').trim();
 const PRIVATE_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_PRIVATE_ROUTE_ASSET_BUCKET || 'roadtrip-route-private').trim();
 const PUBLIC_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_PUBLIC_ROUTE_ASSET_BUCKET || 'roadtrip-route-public').trim();
@@ -42,6 +43,7 @@ const SUPABASE_TABLES = {
   settings: String(process.env.ROADTRIP_SETTINGS_TABLE || 'roadtrip_app_settings').trim(),
   publishedRoutes: String(process.env.ROADTRIP_PUBLISHED_ROUTES_TABLE || 'roadtrip_published_routes').trim(),
   sceneRevisions: String(process.env.ROADTRIP_SCENE_REVISIONS_TABLE || 'roadtrip_scene_revisions').trim(),
+  userScenes: String(process.env.ROADTRIP_USER_SCENES_TABLE || 'roadtrip_user_scenes').trim(),
 };
 const USER_EMAIL_HEADER_CANDIDATES = [USER_EMAIL_HEADER];
 const MAX_BODY = 220 * 1024 * 1024;
@@ -987,6 +989,7 @@ const contentTypeForPath = (file) => {
   if (ext === '.mp4') return 'video/mp4';
   if (ext === '.png') return 'image/png';
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
   return 'application/octet-stream';
 };
 
@@ -1114,12 +1117,15 @@ const toCloudScene = (item) => item ? {
 } : null;
 
 const getCloudSceneVersion = async (supabase, normalizedName) => {
-  const {count, error} = await supabase
+  const {data, error} = await supabase
     .from(SUPABASE_TABLES.sceneRevisions)
-    .select('id', {count: 'exact', head: true})
-    .eq('normalized_name', normalizedName);
+    .select('version')
+    .eq('normalized_name', normalizedName)
+    .order('version', {ascending: false})
+    .limit(1)
+    .maybeSingle();
   if (error) throw error;
-  return Math.max(1, Number(count || 0) + 1);
+  return Math.max(0, Number(data?.version || 0));
 };
 
 const getCloudScenic = async (name) => {
@@ -1187,16 +1193,11 @@ const buildTextDiff = (before, after) => {
   return diff;
 };
 
-const saveSceneRevision = async (supabase, existing, next, identity) => {
-  if (!existing) return;
+const saveSceneRevision = async (supabase, existing, next, identity, version, changeNote = '') => {
   const beforeDescription = String(existing?.description || '');
   const afterDescription = String(next.description || '');
   const beforeImages = Array.isArray(existing?.images) ? existing.images : [];
   const afterImages = Array.isArray(next.images) ? next.images : [];
-  if (
-    beforeDescription === afterDescription &&
-    JSON.stringify(beforeImages) === JSON.stringify(afterImages)
-  ) return;
   const {error} = await supabase
     .from(SUPABASE_TABLES.sceneRevisions)
     .insert({
@@ -1210,11 +1211,13 @@ const saveSceneRevision = async (supabase, existing, next, identity) => {
       images_before: beforeImages,
       images_after: afterImages,
       diff: buildTextDiff(beforeDescription, afterDescription),
+      version,
+      change_note: String(changeNote || '').trim(),
     });
   if (error) throw error;
 };
 
-const saveCloudScenic = async (payload, identity) => {
+const saveCloudScenic = async (payload, identity, options = {}) => {
   const supabase = requireSupabaseClient();
   if (!identity?.email) throw new Error('缺少用户邮箱，无法保存景点。');
   const name = String(payload?.name || payload?.title || '').trim();
@@ -1229,7 +1232,9 @@ const saveCloudScenic = async (payload, identity) => {
   if (readError) throw readError;
 
   const uploaded = await uploadCloudSceneImages(supabase, normalized, payload?.images || []);
-  const images = [...new Set([...(existing?.images || []), ...uploaded])];
+  const images = Array.isArray(options.replaceImages)
+    ? [...new Set(options.replaceImages.filter(Boolean))]
+    : [...new Set([...(existing?.images || []), ...uploaded])];
   const row = {
     ...(existing?.id ? {id: existing.id} : {}),
     normalized_name: normalized,
@@ -1240,14 +1245,22 @@ const saveCloudScenic = async (payload, identity) => {
     updated_by_email: identity.email,
     updated_at: new Date().toISOString(),
   };
-  await saveSceneRevision(supabase, existing, row, identity);
+  const unchanged = existing
+    && String(existing.title || '') === row.title
+    && String(existing.description || '') === row.description
+    && JSON.stringify(existing.images || []) === JSON.stringify(row.images || []);
+  if (unchanged) {
+    const version = await getCloudSceneVersion(supabase, normalized);
+    return {ok: true, unchanged: true, folderName: normalized, spot: toCloudScene({...existing, version}), version};
+  }
+  const version = (await getCloudSceneVersion(supabase, normalized)) + 1;
   const {data, error} = await supabase
     .from(SUPABASE_TABLES.scenes)
     .upsert(row, {onConflict: 'normalized_name'})
     .select('id,name,title,description,images,updated_at')
     .single();
   if (error) throw error;
-  const version = await getCloudSceneVersion(supabase, normalized);
+  await saveSceneRevision(supabase, existing, {...row, id: data.id}, identity, version, payload?.changeNote);
   return {ok: true, folderName: normalized, spot: toCloudScene({...data, version}), version};
 };
 
@@ -1258,7 +1271,7 @@ const listCloudSceneRevisions = async (name) => {
   if (!normalized) throw new Error('景点名称不能为空。');
   const {data, error} = await supabase
     .from(SUPABASE_TABLES.sceneRevisions)
-    .select('id,name,title,edited_by_email,description_before,description_after,images_before,images_after,diff,created_at')
+    .select('id,name,title,edited_by_email,description_before,description_after,images_before,images_after,diff,version,change_note,created_at')
     .eq('normalized_name', normalized)
     .order('created_at', {ascending: false})
     .limit(30);
@@ -1273,6 +1286,8 @@ const listCloudSceneRevisions = async (name) => {
     imagesBefore: item.images_before || [],
     imagesAfter: item.images_after || [],
     diff: item.diff || [],
+    version: Number(item.version || 1),
+    changeNote: item.change_note || '',
     createdAt: item.created_at,
   }));
 };
@@ -1286,15 +1301,253 @@ const listCloudScenes = async () => {
     .order('updated_at', {ascending: false})
     .limit(300);
   if (error) throw error;
-  return (data || []).map((item) => ({
+  return Promise.all((data || []).map(async (item) => ({
     id: item.id,
     name: item.name,
     title: item.title,
     description: item.description || '',
     imageCount: Array.isArray(item.images) ? item.images.length : 0,
+    version: await getCloudSceneVersion(supabase, normalizeSceneName(item.name)),
     updatedByEmail: item.updated_by_email,
     updatedAt: item.updated_at,
-  }));
+  })));
+};
+
+const isStoredSceneImage = (value) =>
+  value && typeof value === 'object' && value.storageBucket && value.storagePath;
+
+const resolveSceneImages = async (images) => {
+  const supabase = getSupabaseClient();
+  const resolved = [];
+  for (const image of images || []) {
+    if (typeof image === 'string' && /^https?:\/\//i.test(image)) {
+      resolved.push(image);
+      continue;
+    }
+    if (!isStoredSceneImage(image)) continue;
+    const url = await routeAssetUrlFromDescriptor(supabase, image);
+    if (url) resolved.push(url);
+  }
+  return resolved;
+};
+
+const toUserScene = async (item) => ({
+  id: item.id,
+  name: item.name,
+  title: item.title,
+  description: item.description || '',
+  images: await resolveSceneImages(item.images || []),
+  imageCount: Array.isArray(item.images) ? item.images.length : 0,
+  sourceSceneId: item.source_scene_id || null,
+  sourceVersion: Number(item.source_version || 0),
+  createdAt: item.created_at,
+  updatedAt: item.updated_at,
+});
+
+const listUserScenes = async (identity) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法读取个人景点介绍。');
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.userScenes)
+    .select('id,name,title,description,images,source_scene_id,source_version,created_at,updated_at')
+    .eq('owner_email', identity.email)
+    .order('updated_at', {ascending: false});
+  if (error) throw error;
+  return Promise.all((data || []).map(toUserScene));
+};
+
+const getUserSceneRow = async (supabase, sceneId, identity) => {
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法读取个人景点介绍。');
+  const id = String(sceneId || '').trim();
+  if (!id) throw new Error('缺少个人景点 ID。');
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.userScenes)
+    .select('owner_email,id,normalized_name,name,title,description,images,source_scene_id,source_version,created_at,updated_at')
+    .eq('owner_email', identity.email)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    const notFound = new Error('未找到这份个人景点介绍。');
+    notFound.status = 404;
+    throw notFound;
+  }
+  return data;
+};
+
+const uploadPrivateSceneImage = async (supabase, identity, normalizedName, buffer, options = {}) => {
+  const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  const sha256 = sha256Buffer(data);
+  const contentType = options.contentType || 'image/jpeg';
+  const ext = safeExt(options.fileName || '', contentType);
+  const storageUserId = await getStorageUserId(identity.email);
+  const storagePath = `users/${storageUserId}/scenes/${storageSafeSegment(normalizedName)}/${sha256}${ext}`;
+  const {error} = await supabase.storage
+    .from(PRIVATE_SCENE_IMAGE_BUCKET)
+    .upload(storagePath, data, {contentType, cacheControl: '31536000', upsert: false});
+  if (error && !/exist|duplicate|already/i.test(error.message || '')) throw error;
+  return {
+    storageBucket: PRIVATE_SCENE_IMAGE_BUCKET,
+    storagePath,
+    sha256,
+    size: data.length,
+    contentType,
+    fileName: options.fileName || `scene${ext}`,
+  };
+};
+
+const uploadPrivateSceneImages = async (supabase, identity, normalizedName, images) => {
+  const descriptors = [];
+  for (const image of images || []) {
+    const parsed = dataUrlToImage(image);
+    if (!parsed) continue;
+    descriptors.push(await uploadPrivateSceneImage(supabase, identity, normalizedName, parsed.buffer, {
+      contentType: parsed.contentType,
+      fileName: `${parsed.name}${parsed.ext}`,
+    }));
+  }
+  return descriptors;
+};
+
+const saveUserScene = async (payload, identity, options = {}) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法保存个人景点介绍。');
+  const name = String(payload?.name || payload?.title || '').trim();
+  const normalized = normalizeSceneName(name);
+  if (!normalized) throw new Error('景点名称不能为空。');
+
+  let query = supabase
+    .from(SUPABASE_TABLES.userScenes)
+    .select('id,name,title,description,images,source_scene_id,source_version');
+  if (payload?.id) query = query.eq('owner_email', identity.email).eq('id', String(payload.id));
+  else query = query.eq('owner_email', identity.email).eq('normalized_name', normalized);
+  const {data: existing, error: readError} = await query.maybeSingle();
+  if (readError) throw readError;
+
+  const uploaded = await uploadPrivateSceneImages(supabase, identity, normalized, payload?.images || []);
+  const images = Array.isArray(options.replaceImages)
+    ? options.replaceImages
+    : [...(existing?.images || []), ...uploaded];
+  const row = {
+    owner_email: identity.email,
+    ...(existing?.id ? {id: existing.id} : {}),
+    normalized_name: normalized,
+    name,
+    title: String(payload?.title || name).trim() || name,
+    description: String(payload?.description || '').trim(),
+    images,
+    source_scene_id: options.sourceSceneId ?? existing?.source_scene_id ?? null,
+    source_version: options.sourceVersion ?? existing?.source_version ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  const mutation = existing?.id
+    ? supabase
+      .from(SUPABASE_TABLES.userScenes)
+      .update(row)
+      .eq('owner_email', identity.email)
+      .eq('id', existing.id)
+    : supabase
+      .from(SUPABASE_TABLES.userScenes)
+      .upsert(row, {onConflict: 'owner_email,normalized_name'});
+  const {data, error} = await mutation
+    .select('id,name,title,description,images,source_scene_id,source_version,created_at,updated_at')
+    .single();
+  if (error) throw error;
+  return {ok: true, scene: await toUserScene(data)};
+};
+
+const copyPublicSceneImagesToPrivate = async (supabase, identity, normalizedName, images) => {
+  const copied = [];
+  for (const source of images || []) {
+    if (!/^https?:\/\//i.test(String(source || ''))) continue;
+    const buffer = await fetchAssetBuffer(source, 16 * 1024 * 1024);
+    if (!buffer) continue;
+    copied.push(await uploadPrivateSceneImage(supabase, identity, normalizedName, buffer, {
+      contentType: contentTypeForPath(new URL(source).pathname),
+      fileName: path.basename(new URL(source).pathname) || 'scene.jpg',
+    }));
+  }
+  return copied;
+};
+
+const importCloudScene = async (name, identity) => {
+  const supabase = requireSupabaseClient();
+  const normalized = normalizeSceneName(name);
+  if (!normalized) throw new Error('景点名称不能为空。');
+  const {data: scene, error} = await supabase
+    .from(SUPABASE_TABLES.scenes)
+    .select('id,name,title,description,images')
+    .eq('normalized_name', normalized)
+    .maybeSingle();
+  if (error) throw error;
+  if (!scene) {
+    const notFound = new Error('未找到这份公共景点介绍。');
+    notFound.status = 404;
+    throw notFound;
+  }
+  const version = await getCloudSceneVersion(supabase, normalized);
+  const images = await copyPublicSceneImagesToPrivate(supabase, identity, normalized, scene.images || []);
+  return saveUserScene({
+    name: scene.name,
+    title: scene.title,
+    description: scene.description,
+  }, identity, {replaceImages: images, sourceSceneId: scene.id, sourceVersion: version});
+};
+
+const copyPrivateSceneImagesToPublic = async (supabase, normalizedName, images) => {
+  const urls = [];
+  for (const image of images || []) {
+    if (typeof image === 'string' && /^https?:\/\//i.test(image)) {
+      urls.push(image);
+      continue;
+    }
+    if (!isStoredSceneImage(image)) continue;
+    const buffer = await downloadRouteAssetDescriptor(supabase, image);
+    if (!buffer) continue;
+    const sha256 = image.sha256 || sha256Buffer(buffer);
+    const ext = safeExt(image.fileName, image.contentType);
+    const objectName = `scenes/${storageSafeSegment(normalizedName)}/${sha256}${ext}`;
+    const {error} = await supabase.storage.from(SCENE_IMAGE_BUCKET).upload(objectName, buffer, {
+      contentType: image.contentType || contentTypeForPath(image.fileName),
+      cacheControl: '31536000',
+      upsert: false,
+    });
+    if (error && !/exist|duplicate|already/i.test(error.message || '')) throw error;
+    const {data} = supabase.storage.from(SCENE_IMAGE_BUCKET).getPublicUrl(objectName);
+    if (data?.publicUrl) urls.push(data.publicUrl);
+  }
+  return [...new Set(urls)];
+};
+
+const publishUserScene = async (sceneId, payload, identity) => {
+  const supabase = requireSupabaseClient();
+  const scene = await getUserSceneRow(supabase, sceneId, identity);
+  const images = await copyPrivateSceneImagesToPublic(supabase, scene.normalized_name, scene.images || []);
+  const result = await saveCloudScenic({
+    name: scene.name,
+    title: scene.title,
+    description: scene.description,
+    changeNote: payload?.changeNote,
+  }, identity, {replaceImages: images});
+  await supabase
+    .from(SUPABASE_TABLES.userScenes)
+    .update({source_scene_id: result.spot?.id || scene.source_scene_id, source_version: result.version})
+    .eq('owner_email', identity.email)
+    .eq('id', scene.id);
+  return {...result, sceneId: scene.id};
+};
+
+const deleteUserScene = async (sceneId, identity) => {
+  const supabase = requireSupabaseClient();
+  const scene = await getUserSceneRow(supabase, sceneId, identity);
+  const {error} = await supabase
+    .from(SUPABASE_TABLES.userScenes)
+    .delete()
+    .eq('owner_email', identity.email)
+    .eq('id', scene.id);
+  if (error) throw error;
+  await removeRouteAssetDescriptors(supabase, (scene.images || []).filter(isStoredSceneImage));
+  return {ok: true};
 };
 
 const deleteCloudScenic = async (name, identity) => {
@@ -1702,26 +1955,35 @@ const deletePublishedRoute = async (publishedId, identity) => {
 const getAdminSummary = async (identity) => {
   assertAdminIdentity(identity);
   const supabase = requireSupabaseClient();
-  const [routesResult, publishedResult, scenesResult] = await Promise.all([
+  const [routesResult, userScenesResult, publishedResult, scenesResult] = await Promise.all([
     supabase.from(SUPABASE_TABLES.routes).select('owner_email,id,name,updated_at').order('updated_at', {ascending: false}).limit(1000),
+    supabase.from(SUPABASE_TABLES.userScenes).select('owner_email,id,name,updated_at').order('updated_at', {ascending: false}).limit(1000),
     supabase.from(SUPABASE_TABLES.publishedRoutes).select('id,name,published_by_email,published_at,updated_at').order('published_at', {ascending: false}).limit(300),
     supabase.from(SUPABASE_TABLES.scenes).select('id,name,title,updated_by_email,updated_at').order('updated_at', {ascending: false}).limit(300),
   ]);
-  for (const result of [routesResult, publishedResult, scenesResult]) {
+  for (const result of [routesResult, userScenesResult, publishedResult, scenesResult]) {
     if (result.error) throw result.error;
   }
   const users = new Map();
   (routesResult.data || []).forEach((item) => {
     const email = item.owner_email || '';
     if (!email) return;
-    const current = users.get(email) || {email, routeCount: 0, lastRouteAt: null};
+    const current = users.get(email) || {email, routeCount: 0, sceneCount: 0, lastRouteAt: null, lastSceneAt: null};
     current.routeCount += 1;
     if (!current.lastRouteAt || String(item.updated_at || '') > current.lastRouteAt) current.lastRouteAt = item.updated_at;
     users.set(email, current);
   });
+  (userScenesResult.data || []).forEach((item) => {
+    const email = item.owner_email || '';
+    if (!email) return;
+    const current = users.get(email) || {email, routeCount: 0, sceneCount: 0, lastRouteAt: null, lastSceneAt: null};
+    current.sceneCount += 1;
+    if (!current.lastSceneAt || String(item.updated_at || '') > current.lastSceneAt) current.lastSceneAt = item.updated_at;
+    users.set(email, current);
+  });
   return {
     ok: true,
-    users: [...users.values()].sort((a, b) => String(b.lastRouteAt || '').localeCompare(String(a.lastRouteAt || ''))),
+    users: [...users.values()].sort((a, b) => String(b.lastRouteAt || b.lastSceneAt || '').localeCompare(String(a.lastRouteAt || a.lastSceneAt || ''))),
     publishedRoutes: publishedResult.data || [],
     scenes: scenesResult.data || [],
   };
@@ -2595,6 +2857,49 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/scenes') {
       const scenes = await listCloudScenes();
       return send(res, 200, {ok: true, scenes: scenes || []});
+    }
+    if (req.method === 'GET' && url.pathname === '/api/user-scenes') {
+      try {
+        const scenes = await listUserScenes(identity);
+        return send(res, 200, {ok: true, scenes});
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/user-scenes') {
+      try {
+        const result = await saveUserScene(await readBody(req), identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/user-scenes/import') {
+      try {
+        const payload = await readBody(req);
+        const result = await importCloudScene(payload?.name, identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname.startsWith('/api/user-scenes/') && url.pathname.endsWith('/publish')) {
+      try {
+        const sceneId = decodeURIComponent(url.pathname.slice('/api/user-scenes/'.length, -'/publish'.length));
+        const result = await publishUserScene(sceneId, await readBody(req), identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/user-scenes/')) {
+      try {
+        const sceneId = decodeURIComponent(url.pathname.slice('/api/user-scenes/'.length));
+        const result = await deleteUserScene(sceneId, identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
     }
     if (req.method === 'GET' && url.pathname === '/api/scenic-revisions') {
       const revisions = await listCloudSceneRevisions(url.searchParams.get('name') || '');

@@ -78,6 +78,21 @@
       listScenes() {
         return fetchJson(apiUrl('/api/scenes'));
       },
+      listUserScenes() {
+        return fetchJson(apiUrl('/api/user-scenes'));
+      },
+      saveUserScene(payload) {
+        return postJson('/api/user-scenes', payload);
+      },
+      importScene(name) {
+        return postJson('/api/user-scenes/import', {name});
+      },
+      publishUserScene(sceneId, changeNote = '') {
+        return postJson(`/api/user-scenes/${encodeURIComponent(sceneId)}/publish`, {changeNote});
+      },
+      deleteUserScene(sceneId) {
+        return fetchJson(apiUrl(`/api/user-scenes/${encodeURIComponent(sceneId)}`), {method: 'DELETE'});
+      },
       listScenicRevisions(name) {
         return fetchJson(apiUrl(`/api/scenic-revisions?name=${encodeURIComponent(name || '')}`));
       },

@@ -73,9 +73,7 @@
     <div class="app-shell">
       <main id="map"></main>
       <div class="map-placeholder show" id="mapPlaceholder">
-        <strong>地图未加载</strong>
-        <p>启动本地服务并配置高德 Key 后显示地图。</p>
-        <button class="primary" id="openSetupFromMapBtn">配置高德 Key</button>
+        <strong>地图加载中</strong>
       </div>
     </div>
   </div>
@@ -121,30 +119,52 @@
         <section class="account-view active" id="accountViewRoutes">
           <div class="account-workspace-head">
             <h2>我的路线</h2>
-            <span>查看自己的路线，下载已经生成的产品文件。</span>
+            <span>管理自己的路线，或从公共路线库导入一份独立副本。</span>
           </div>
-          <div class="account-list" id="accountRouteList"></div>
+          <div class="content-switch" id="accountRouteSwitch">
+            <button class="active" type="button" data-route-content="mine">我的路线</button>
+            <button type="button" data-route-content="public">公共路线</button>
+          </div>
+          <div class="account-content-pane active" id="accountRouteMinePane">
+            <div class="account-list" id="accountRouteList"></div>
+          </div>
+          <div class="account-content-pane" id="accountRoutePublicPane">
+            <div class="account-list" id="accountPublicRouteList"></div>
+          </div>
         </section>
 
         <section class="account-view" id="accountViewScenic">
           <div class="account-workspace-head">
             <h2>景点介绍</h2>
-            <span>新增或更新公共景点介绍，发布后所有用户都能查看和继续维护。</span>
+            <span>维护自己的介绍，或从公共景点库导入后继续编辑。</span>
           </div>
-          <div class="account-route-form scenic-account-form">
-            <div class="account-route-form-field">
-              <label>景点名称</label>
-              <input id="accountSceneName" placeholder="例如：天水古城" />
-            </div>
-            <div class="account-route-form-field">
-              <label>图片</label>
-              <input id="accountSceneImages" type="file" accept="image/*" multiple />
-            </div>
-            <button class="primary" id="accountPublishSceneBtn" type="button">发布介绍</button>
-            <textarea id="accountSceneDescription" placeholder="景点介绍、游玩提示、交通或注意事项"></textarea>
+          <div class="content-switch" id="accountSceneSwitch">
+            <button class="active" type="button" data-scene-content="mine">我的景点</button>
+            <button type="button" data-scene-content="public">公共景点</button>
           </div>
-          <div class="hint" id="accountSceneStatus">公共景点介绍由站点用户共同维护。</div>
-          <div class="account-list" id="accountSceneList"></div>
+          <div class="account-content-pane active" id="accountSceneMinePane">
+            <div class="account-route-form scenic-account-form">
+              <input id="accountSceneId" type="hidden" />
+              <div class="account-route-form-field">
+                <label>景点名称</label>
+                <input id="accountSceneName" placeholder="例如：天水古城" />
+              </div>
+              <div class="account-route-form-field">
+                <label>添加图片</label>
+                <input id="accountSceneImages" type="file" accept="image/*" multiple />
+              </div>
+              <div class="account-form-actions">
+                <button class="primary" id="accountSaveSceneBtn" type="button">保存</button>
+                <button id="accountCancelSceneBtn" type="button" hidden>取消编辑</button>
+              </div>
+              <textarea id="accountSceneDescription" placeholder="景点介绍、游玩提示、交通或注意事项"></textarea>
+            </div>
+            <div class="hint account-inline-status" id="accountSceneStatus">内容仅自己可见，主动发布后才会进入公共库。</div>
+            <div class="account-list" id="accountSceneList"></div>
+          </div>
+          <div class="account-content-pane" id="accountScenePublicPane">
+            <div class="account-list" id="accountPublicSceneList"></div>
+          </div>
         </section>
 
         <section class="account-view" id="accountViewAdmin">
@@ -176,8 +196,12 @@
               <div class="account-list" id="adminUserList"></div>
             </section>
             <section class="settings-section">
-              <h3>公共内容</h3>
-              <div class="account-list" id="adminPublicContentList"></div>
+              <h3>公共路线</h3>
+              <div class="account-list" id="adminPublishedRouteList"></div>
+            </section>
+            <section class="settings-section">
+              <h3>公共景点</h3>
+              <div class="account-list" id="adminPublishedSceneList"></div>
             </section>
           </div>
         </section>
@@ -371,10 +395,10 @@
   </div>
 
   <div class="status"><div class="toast" id="toast"></div></div>
-  <div class="loading" id="loading">
+  <div class="loading show" id="loading">
     <div class="loading-box">
-      <div class="loading-text" id="loadingText">正在计算路线…</div>
-      <div class="loading-progress" id="loadingProgress"><span id="loadingProgressBar"></span></div>
+      <div class="loading-text" id="loadingText">地图加载中</div>
+      <div class="loading-progress show" id="loadingProgress"><span id="loadingProgressBar" style="width:8%"></span></div>
       <div class="loading-detail" id="loadingDetail"></div>
     </div>
   </div>

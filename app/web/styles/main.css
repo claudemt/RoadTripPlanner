@@ -598,6 +598,7 @@
       color: #fff;
       background: rgba(255, 255, 255, .11);
     }
+    .account-navigation nav button[hidden] { display: none; }
     .account-nav-index {
       color: #d47a58;
       font-family: var(--mono);
@@ -639,6 +640,33 @@
       margin: 0 auto;
       border-top: 1px solid #c7ceca;
     }
+    .content-switch {
+      display: inline-flex;
+      gap: 2px;
+      margin: 0 0 22px calc((100% - min(1080px, 100%)) / 2);
+      padding: 3px;
+      border: 1px solid #c7ceca;
+      border-radius: 6px;
+      background: #e3e7e4;
+    }
+    .content-switch button {
+      min-width: 104px;
+      height: 34px;
+      border: 0;
+      border-radius: 4px;
+      color: #68736e;
+      background: transparent;
+      box-shadow: none;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .content-switch button.active {
+      color: #17231f;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(24, 39, 32, .1);
+    }
+    .account-content-pane { display: none; }
+    .account-content-pane.active { display: block; }
     .account-list.compact {
       display: grid;
       gap: 8px;
@@ -675,6 +703,16 @@
       min-height: 118px;
       resize: vertical;
     }
+    .account-form-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .account-inline-status {
+      max-width: 1080px;
+      margin: -10px auto 18px;
+      font-size: 14px;
+    }
     .account-route-form-field {
       display: grid;
       gap: 6px;
@@ -699,6 +737,9 @@
       transition: background .16s ease;
     }
     .admin-content-item {
+      grid-template-columns: minmax(0, 1fr) 180px minmax(180px, auto);
+    }
+    .settings-section .admin-content-item {
       grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
     }
     .diff-list {
