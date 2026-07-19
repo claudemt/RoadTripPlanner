@@ -990,10 +990,18 @@ const contentTypeForPath = (file) => {
   return 'application/octet-stream';
 };
 
+const pickRouteAssetMap = (assets = {}) =>
+  ASSET_KEYS.reduce((result, key) => {
+    const canonical = canonicalAssetKey(key);
+    const value = assets[canonical] || assets[key];
+    if (value) result[canonical] = value;
+    return result;
+  }, {});
+
 const withRouteAsset = (routeData, key, asset) => ({
   ...(routeData || {}),
   _assets: {
-    ...((routeData && routeData._assets) || {}),
+    ...pickRouteAssetMap((routeData && routeData._assets) || {}),
     [canonicalAssetKey(key)]: asset,
   },
 });
@@ -1001,8 +1009,8 @@ const withRouteAsset = (routeData, key, asset) => ({
 const withRouteAssets = (routeData, assets) => ({
   ...(routeData || {}),
   _assets: {
-    ...((routeData && routeData._assets) || {}),
-    ...assets,
+    ...pickRouteAssetMap((routeData && routeData._assets) || {}),
+    ...pickRouteAssetMap(assets),
   },
 });
 

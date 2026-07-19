@@ -64,6 +64,15 @@ function descriptorsFor(routeData) {
   }, {});
 }
 
+function pickAssetMap(assets = {}) {
+  return ASSET_KEYS.reduce((result, key) => {
+    const canonical = canonicalAssetKey(key);
+    const value = assets[canonical] || assets[key];
+    if (value) result[canonical] = value;
+    return result;
+  }, {});
+}
+
 function isMigrated(descriptor, bucket) {
   return descriptor?.storageBucket === bucket &&
     descriptor?.storagePath &&
@@ -138,7 +147,7 @@ function toBasicRouteData(routeData) {
 
 async function migrateRouteData(supabase, routeData, {bucket, prefix, routeName}) {
   const current = descriptorsFor(routeData);
-  const nextAssets = {...(routeData?._assets || {})};
+  const nextAssets = pickAssetMap(routeData?._assets || {});
   let changed = false;
   for (const key of ASSET_KEYS) {
     const descriptor = current[key];
@@ -175,6 +184,7 @@ async function migrateRouteData(supabase, routeData, {bucket, prefix, routeName}
     };
     changed = true;
   }
+  if (JSON.stringify(pickAssetMap(routeData?._assets || {})) !== JSON.stringify(routeData?._assets || {})) changed = true;
   return changed ? {...routeData, _assets: nextAssets} : routeData;
 }
 
