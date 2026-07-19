@@ -13,7 +13,7 @@ npm run build
 ## 2. 启动应用
 
 ```bash
-ROADTRIP_USER_EMAIL_HEADER=Remote-Email \
+ROADTRIP_USER_EMAIL_HEADER=X-Auth-Request-Email \
 ROADTRIP_REQUIRE_USER_EMAIL=true \
 npm start
 ```
@@ -28,7 +28,7 @@ npm start
 map.example.com {
     forward_auth 127.0.0.1:9091 {
         uri /verify
-        copy_headers Remote-Email
+        copy_headers X-Auth-Request-Email
     }
 
     reverse_proxy 127.0.0.1:6137
@@ -38,7 +38,7 @@ map.example.com {
 应用环境变量必须与该请求头一致：
 
 ```text
-ROADTRIP_USER_EMAIL_HEADER=Remote-Email
+ROADTRIP_USER_EMAIL_HEADER=X-Auth-Request-Email
 ```
 
 Caddy 必须覆盖或清理客户端自行提交的同名身份头，身份头只能来自受信任的认证流程。
@@ -46,7 +46,7 @@ Caddy 必须覆盖或清理客户端自行提交的同名身份头，身份头�
 ## 4. 测试
 
 ```bash
-curl -H 'Remote-Email: user@example.com' \
+curl -H 'X-Auth-Request-Email: user@example.com' \
   http://127.0.0.1:6137/api/session
 ```
 
