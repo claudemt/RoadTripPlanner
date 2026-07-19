@@ -201,8 +201,9 @@ const CoverBadge: React.FC<{value: string}> = ({value}) => (
 );
 
 const RouteLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | null; activeProgress: number; camera: ReturnType<typeof computeCamera>}> = ({data, activeDayIndex, activeProgress, camera}) => {
+  const {width, height} = useVideoConfig();
   return (
-    <svg width="1920" height="1080" style={{position: 'absolute', inset: 0, overflow: 'visible', zIndex: 20}}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{position: 'absolute', inset: 0, overflow: 'visible', zIndex: 20}}>
       <defs>
         <filter id="routeGlow" x="-40%" y="-40%" width="180%" height="180%">
           <feGaussianBlur stdDeviation="5" result="blur" />
@@ -412,7 +413,6 @@ export const AmapRouteVideo: React.FC<Props> = ({data, amapKey, amapSecurityCode
     </AbsoluteFill>
   );
 };
-
 
 
 

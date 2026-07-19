@@ -12,6 +12,8 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "local": "node server/route-render-server.js",
+    "migrate-route-assets": "node scripts/migrate-route-assets.js",
+    "diagnose-asset-url": "node scripts/diagnose-asset-url.js",
     "studio": "npm --workspace video run studio",
     "typecheck": "npm --workspace video run typecheck"
   },

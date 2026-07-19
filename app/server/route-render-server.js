@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const {spawn} = require('child_process');
 let createSupabaseClient = null;
 try {
@@ -32,7 +33,9 @@ const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const REQUIRE_SUPABASE = /^(1|true|yes|on)$/i.test(String(process.env.ROADTRIP_REQUIRE_SUPABASE || 'false').trim());
 const SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_SCENE_IMAGE_BUCKET || 'roadtrip-scene-images').trim();
-const ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_ROUTE_ASSET_BUCKET || 'roadtrip-route-assets').trim();
+const LEGACY_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_ROUTE_ASSET_BUCKET || 'roadtrip-route-assets').trim();
+const PRIVATE_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_PRIVATE_ROUTE_ASSET_BUCKET || 'roadtrip-route-private').trim();
+const PUBLIC_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_PUBLIC_ROUTE_ASSET_BUCKET || 'roadtrip-route-public').trim();
 const SUPABASE_TABLES = {
   routes: String(process.env.ROADTRIP_ROUTES_TABLE || 'roadtrip_routes').trim(),
   scenes: String(process.env.ROADTRIP_SCENES_TABLE || 'roadtrip_scenes').trim(),
@@ -43,7 +46,11 @@ const SUPABASE_TABLES = {
 const USER_EMAIL_HEADER_CANDIDATES = [USER_EMAIL_HEADER];
 const MAX_BODY = 220 * 1024 * 1024;
 const REMOTION_CONCURRENCY = String(process.env.ROUTE_RENDER_CONCURRENCY || 4);
-const REMOTION_CRF = String(process.env.ROUTE_RENDER_CRF || 20);
+const REMOTION_CRF = String(process.env.ROUTE_RENDER_CRF || 23);
+const REMOTION_WIDTH = String(process.env.ROUTE_RENDER_WIDTH || 1280);
+const REMOTION_HEIGHT = String(process.env.ROUTE_RENDER_HEIGHT || 720);
+const REMOTION_FPS = String(process.env.ROUTE_RENDER_FPS || 30);
+const ROUTE_ASSET_SIGNED_URL_SECONDS = Math.max(60, Number(process.env.ROADTRIP_ROUTE_ASSET_SIGNED_URL_SECONDS || 7200));
 const KEY_CANDIDATES = [
   path.join(CONFIG_ROOT, 'local.env'),
   path.join(AMAP_ROOT, '.env.local'),
@@ -779,6 +786,42 @@ const requireSupabaseClient = () => {
   return supabase;
 };
 
+const storageUserCache = new Map();
+
+const getStorageUserId = async (email) => {
+  const ownerEmail = normalizeEmail(email);
+  if (!ownerEmail) throw new Error('缺少用户邮箱，无法定位存储空间。');
+  if (storageUserCache.has(ownerEmail)) return storageUserCache.get(ownerEmail);
+  const supabase = requireSupabaseClient();
+  const {data: existing, error: readError} = await supabase
+    .from('roadtrip_users')
+    .select('storage_user_id')
+    .eq('owner_email', ownerEmail)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (existing?.storage_user_id) {
+    storageUserCache.set(ownerEmail, existing.storage_user_id);
+    return existing.storage_user_id;
+  }
+  const {data, error} = await supabase
+    .from('roadtrip_users')
+    .insert({owner_email: ownerEmail})
+    .select('storage_user_id')
+    .single();
+  if (error) {
+    const {data: raced, error: retryError} = await supabase
+      .from('roadtrip_users')
+      .select('storage_user_id')
+      .eq('owner_email', ownerEmail)
+      .single();
+    if (retryError) throw error;
+    storageUserCache.set(ownerEmail, raced.storage_user_id);
+    return raced.storage_user_id;
+  }
+  storageUserCache.set(ownerEmail, data.storage_user_id);
+  return data.storage_user_id;
+};
+
 const normalizeCloudRouteId = (routeData) => {
   const id = String(routeData?.id || '').trim();
   if (id) return id.slice(0, 120);
@@ -786,23 +829,67 @@ const normalizeCloudRouteId = (routeData) => {
   return `${name}-${Date.now().toString(36)}`.slice(0, 120);
 };
 
-const getRouteAssetUrl = (routeData, key) => {
+const ASSET_KEYS = ['routeJson', 'videoData', 'mp4', 'manualMd', 'manualPdf', 'mapImage', 'productZip'];
+const ASSET_ALIASES = {videoJson: 'videoData'};
+
+const canonicalAssetKey = (key) => ASSET_ALIASES[key] || key;
+
+const isRouteAssetDescriptor = (value) =>
+  value && typeof value === 'object' && typeof value.storageBucket === 'string' && typeof value.storagePath === 'string';
+
+const getRouteAssetDescriptor = (routeData, key) => {
   const assets = routeData?._assets || routeData?.assets || {};
-  const value = assets[key] || assets[`${key}Url`];
-  if (typeof value === 'string') return /^https?:\/\//i.test(value) ? value : null;
-  if (value && typeof value.url === 'string') return /^https?:\/\//i.test(value.url) ? value.url : null;
+  const canonical = canonicalAssetKey(key);
+  const value = assets[canonical] || assets[key] || assets[`${canonical}Url`] || assets[`${key}Url`];
+  if (!value) return null;
+  if (typeof value === 'string') return /^https?:\/\//i.test(value) ? {url: value} : null;
+  if (isRouteAssetDescriptor(value)) return {...value};
+  if (typeof value.url === 'string' && /^https?:\/\//i.test(value.url)) return {...value};
   return null;
 };
 
-const getRouteAssetUrls = (routeData) => ({
-  routeJson: getRouteAssetUrl(routeData, 'routeJson'),
-  videoJson: getRouteAssetUrl(routeData, 'videoData') || getRouteAssetUrl(routeData, 'videoJson'),
-  mp4: getRouteAssetUrl(routeData, 'mp4'),
-  manualMd: getRouteAssetUrl(routeData, 'manualMd'),
-  manualPdf: getRouteAssetUrl(routeData, 'manualPdf'),
-  mapImage: getRouteAssetUrl(routeData, 'mapImage'),
-  productZip: getRouteAssetUrl(routeData, 'productZip'),
-});
+const getRouteAssetDescriptors = (routeData) =>
+  ASSET_KEYS.reduce((result, key) => {
+    const descriptor = getRouteAssetDescriptor(routeData, key);
+    if (descriptor) result[key] = descriptor;
+    return result;
+  }, {});
+
+const routeAssetUrlFromDescriptor = async (supabase, descriptor) => {
+  if (!descriptor) return null;
+  if (typeof descriptor.url === 'string' && /^https?:\/\//i.test(descriptor.url)) return descriptor.url;
+  if (!descriptor.storageBucket || !descriptor.storagePath || !supabase) return null;
+  if (descriptor.storageBucket === PUBLIC_ROUTE_ASSET_BUCKET || descriptor.storageBucket === LEGACY_ROUTE_ASSET_BUCKET) {
+    const {data} = supabase.storage.from(descriptor.storageBucket).getPublicUrl(descriptor.storagePath);
+    return data?.publicUrl || null;
+  }
+  const {data, error} = await supabase.storage
+    .from(descriptor.storageBucket)
+    .createSignedUrl(descriptor.storagePath, ROUTE_ASSET_SIGNED_URL_SECONDS);
+  if (error) throw error;
+  return data?.signedUrl || null;
+};
+
+const resolveRouteAssetUrls = async (routeData) => {
+  const supabase = getSupabaseClient();
+  const descriptors = getRouteAssetDescriptors(routeData);
+  const result = {};
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    result[key] = await routeAssetUrlFromDescriptor(supabase, descriptor);
+  }
+  result.videoJson = result.videoData || result.videoJson || null;
+  return result;
+};
+
+const getRouteAssetUrls = (routeData) => {
+  const descriptors = getRouteAssetDescriptors(routeData);
+  const result = {};
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    result[key] = descriptor.url || null;
+  }
+  result.videoJson = result.videoData || result.videoJson || null;
+  return result;
+};
 
 const buildSimpleRouteMarkdown = (routeData) => {
   const basic = toBasicRouteData(routeData);
@@ -832,7 +919,7 @@ const routeAssetEntryName = (routeName, suffix) => `${safeName(routeName || 'rou
 
 const buildRouteProductZip = async (routeData, options = {}) => {
   const name = String(options.name || routeData?.name || '路线').trim() || '路线';
-  const assetUrls = getRouteAssetUrls(routeData);
+  const assetUrls = await resolveRouteAssetUrls(routeData);
   const entries = [
     {name: routeAssetEntryName(name, 'route.json'), data: JSON.stringify(toBasicRouteData(routeData), null, 2)},
   ];
@@ -856,13 +943,39 @@ const buildRouteProductZip = async (routeData, options = {}) => {
   return createZipBuffer(entries);
 };
 
-const uploadBufferToRouteAssets = async (supabase, objectName, buffer, contentType) => {
+const sha256Buffer = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
+
+const extensionForContentType = (contentType, fallback = '') => {
+  if (/json/i.test(contentType)) return '.json';
+  if (/markdown|text\/plain/i.test(contentType)) return '.md';
+  if (/pdf/i.test(contentType)) return '.pdf';
+  if (/mp4|video/i.test(contentType)) return '.mp4';
+  if (/png/i.test(contentType)) return '.png';
+  if (/jpe?g/i.test(contentType)) return '.jpg';
+  return fallback || '';
+};
+
+const uploadBufferToRouteAssets = async (supabase, {bucket, prefix, key, buffer, contentType, fileName}) => {
+  const data = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  const sha256 = sha256Buffer(data);
+  const ext = path.extname(String(fileName || '')).toLowerCase() || extensionForContentType(contentType);
+  const storagePath = `${prefix.replace(/^\/+|\/+$/g, '')}/${canonicalAssetKey(key)}/${sha256}${ext}`;
   const {error} = await supabase.storage
-    .from(ROUTE_ASSET_BUCKET)
-    .upload(objectName, buffer, {contentType, upsert: true});
-  if (error) throw error;
-  const {data} = supabase.storage.from(ROUTE_ASSET_BUCKET).getPublicUrl(objectName);
-  return data?.publicUrl || null;
+    .from(bucket)
+    .upload(storagePath, data, {
+      contentType,
+      cacheControl: '31536000',
+      upsert: false,
+    });
+  if (error && !/exist|duplicate|already/i.test(error.message || '')) throw error;
+  return {
+    storageBucket: bucket,
+    storagePath,
+    sha256,
+    size: data.length,
+    contentType,
+    fileName: fileName || `${canonicalAssetKey(key)}${ext}`,
+  };
 };
 
 const contentTypeForPath = (file) => {
@@ -870,6 +983,7 @@ const contentTypeForPath = (file) => {
   if (ext === '.json') return 'application/json; charset=utf-8';
   if (ext === '.md') return 'text/markdown; charset=utf-8';
   if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.zip') return 'application/zip';
   if (ext === '.mp4') return 'video/mp4';
   if (ext === '.png') return 'image/png';
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
@@ -880,30 +994,38 @@ const withRouteAsset = (routeData, key, asset) => ({
   ...(routeData || {}),
   _assets: {
     ...((routeData && routeData._assets) || {}),
-    [key]: asset,
+    [canonicalAssetKey(key)]: asset,
+  },
+});
+
+const withRouteAssets = (routeData, assets) => ({
+  ...(routeData || {}),
+  _assets: {
+    ...((routeData && routeData._assets) || {}),
+    ...assets,
   },
 });
 
 const uploadRouteProductZip = async (supabase, routeData, options = {}) => {
   const name = String(options.name || routeData?.name || '路线').trim() || '路线';
-  const idPart = storageSafeSegment(options.id || routeData?.id || name);
-  const objectName = `routes/${idPart}/product.zip`;
   const buffer = await buildRouteProductZip(routeData, {name});
-  const url = await uploadBufferToRouteAssets(supabase, objectName, buffer, 'application/zip');
+  const descriptor = await uploadBufferToRouteAssets(supabase, {
+    bucket: options.bucket || PUBLIC_ROUTE_ASSET_BUCKET,
+    prefix: options.prefix || `routes/${storageSafeSegment(options.id || routeData?.id || name)}`,
+    key: 'productZip',
+    buffer,
+    contentType: 'application/zip',
+    fileName: `${safeName(name)}.product.zip`,
+  });
   return {
-    routeData: withRouteAsset(routeData, 'productZip', {
-      url,
-      storageBucket: ROUTE_ASSET_BUCKET,
-      storagePath: objectName,
-      fileName: `${safeName(name)}.product.zip`,
-    }),
-    url,
+    routeData: withRouteAsset(routeData, 'productZip', descriptor),
+    descriptor,
     size: buffer.length,
   };
 };
 
-const toCloudRouteItem = (item) => {
-  const assetUrls = getRouteAssetUrls(item.route_data);
+const toCloudRouteItem = async (item) => {
+  const assetUrls = await resolveRouteAssetUrls(item.route_data);
   return {
     name: item.name,
     safeName: item.id,
@@ -932,7 +1054,7 @@ const listCloudRoutes = async (identity) => {
     .eq('owner_email', identity.email)
     .order('updated_at', {ascending: false});
   if (error) throw error;
-  return (data || []).map(toCloudRouteItem);
+  return Promise.all((data || []).map(toCloudRouteItem));
 };
 
 const saveCloudRoute = async (payload, identity) => {
@@ -1230,6 +1352,78 @@ const getPublishedRouteName = (name, existingNames = new Set()) => {
   return candidate;
 };
 
+const downloadRouteAssetDescriptor = async (supabase, descriptor) => {
+  if (!descriptor) return null;
+  if (descriptor.storageBucket && descriptor.storagePath) {
+    const {data, error} = await supabase.storage
+      .from(descriptor.storageBucket)
+      .download(descriptor.storagePath);
+    if (error) throw error;
+    return Buffer.from(await data.arrayBuffer());
+  }
+  if (descriptor.url) return fetchAssetBuffer(descriptor.url);
+  return null;
+};
+
+const copyRouteAssetToBucket = async (supabase, descriptor, {bucket, prefix, key, fallbackFileName}) => {
+  const buffer = await downloadRouteAssetDescriptor(supabase, descriptor);
+  if (!buffer) return null;
+  return uploadBufferToRouteAssets(supabase, {
+    bucket,
+    prefix,
+    key,
+    buffer,
+    contentType: descriptor.contentType || contentTypeForPath(descriptor.fileName || fallbackFileName || key),
+    fileName: descriptor.fileName || fallbackFileName || key,
+  });
+};
+
+const copyRouteAssetsToBucket = async (supabase, routeData, {bucket, prefix, routeName}) => {
+  const descriptors = getRouteAssetDescriptors(routeData);
+  const assets = {};
+  try {
+    for (const key of ['manualMd', 'manualPdf', 'videoData', 'mp4', 'mapImage']) {
+      const descriptor = descriptors[key];
+      if (!descriptor) continue;
+      const copied = await copyRouteAssetToBucket(supabase, descriptor, {
+        bucket,
+        prefix,
+        key,
+        fallbackFileName: routeAssetEntryName(routeName, key === 'videoData' ? 'mp4-data.json' : key),
+      });
+      if (copied) assets[key] = copied;
+    }
+    assets.routeJson = await uploadBufferToRouteAssets(supabase, {
+      bucket,
+      prefix,
+      key: 'routeJson',
+      buffer: Buffer.from(JSON.stringify(toBasicRouteData(routeData), null, 2)),
+      contentType: 'application/json; charset=utf-8',
+      fileName: routeAssetEntryName(routeName, 'route.json'),
+    });
+  } catch (error) {
+    await removeRouteAssetDescriptors(supabase, Object.values(assets));
+    throw error;
+  }
+  return withRouteAssets(routeData, assets);
+};
+
+const routeAssetStorageDescriptors = (routeData) =>
+  Object.values(getRouteAssetDescriptors(routeData)).filter((item) => item?.storageBucket && item?.storagePath);
+
+const removeRouteAssetDescriptors = async (supabase, descriptors) => {
+  const byBucket = new Map();
+  for (const descriptor of descriptors || []) {
+    if (!descriptor?.storageBucket || !descriptor?.storagePath) continue;
+    if (!byBucket.has(descriptor.storageBucket)) byBucket.set(descriptor.storageBucket, []);
+    byBucket.get(descriptor.storageBucket).push(descriptor.storagePath);
+  }
+  for (const [bucket, paths] of byBucket.entries()) {
+    if (!paths.length) continue;
+    await supabase.storage.from(bucket).remove([...new Set(paths)]).catch(() => {});
+  }
+};
+
 const listPublishedRoutes = async () => {
   const supabase = getSupabaseClient();
   if (!supabase) return null;
@@ -1238,8 +1432,8 @@ const listPublishedRoutes = async () => {
     .select('id,name,route_data,map_layer,published_by_email,source_route_id,source_owner_email,published_at,updated_at')
     .order('published_at', {ascending: false});
   if (error) throw error;
-  return (data || []).map((item) => {
-    const assetUrls = getRouteAssetUrls(item.route_data);
+  return Promise.all((data || []).map(async (item) => {
+    const assetUrls = await resolveRouteAssetUrls(item.route_data);
     return {
       id: item.id,
       name: item.name,
@@ -1262,7 +1456,7 @@ const listPublishedRoutes = async () => {
       sourceOwnerEmail: item.source_owner_email,
       routeData: item.route_data,
     };
-  });
+  }));
 };
 
 const publishCloudRoute = async (payload, identity) => {
@@ -1284,13 +1478,34 @@ const publishCloudRoute = async (payload, identity) => {
     error.status = 409;
     throw error;
   }
+  const publishedId = crypto.randomUUID();
+  const prefix = `routes/${publishedId}`;
+  let publicRouteData = null;
+  try {
+    publicRouteData = await copyRouteAssetsToBucket(supabase, routeData, {
+      bucket: PUBLIC_ROUTE_ASSET_BUCKET,
+      prefix,
+      routeName: name,
+    });
+    const zip = await uploadRouteProductZip(supabase, publicRouteData, {
+      bucket: PUBLIC_ROUTE_ASSET_BUCKET,
+      prefix,
+      id: publishedId,
+      name,
+    });
+    publicRouteData = zip.routeData;
+  } catch (error) {
+    await removeRouteAssetDescriptors(supabase, routeAssetStorageDescriptors(publicRouteData));
+    throw error;
+  }
   const row = {
+    id: publishedId,
     name: name,
     name_key: nameKey,
     published_by_email: identity.email,
     source_route_id: String(routeData.id || '').trim() || null,
     source_owner_email: identity.email,
-    route_data: routeData,
+    route_data: publicRouteData,
     map_layer: String(payload.mapLayer || 'standard').trim() || 'standard',
     published_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -1306,14 +1521,9 @@ const publishCloudRoute = async (payload, identity) => {
       conflict.status = 409;
       throw conflict;
     }
+    await removeRouteAssetDescriptors(supabase, routeAssetStorageDescriptors(publicRouteData));
     throw error;
   }
-  const zip = await uploadRouteProductZip(supabase, routeData, {id: data.id, name});
-  const {error: updateError} = await supabase
-    .from(SUPABASE_TABLES.publishedRoutes)
-    .update({route_data: zip.routeData, updated_at: new Date().toISOString()})
-    .eq('id', data.id);
-  if (updateError) throw updateError;
   return {ok: true, published: data};
 };
 
@@ -1327,8 +1537,13 @@ const ensurePublishedRouteProductZips = async (identity) => {
   if (error) throw error;
   let updated = 0;
   for (const item of data || []) {
-    if (getRouteAssetUrls(item.route_data).productZip) continue;
-    const zip = await uploadRouteProductZip(supabase, item.route_data, {id: item.id, name: item.name});
+    if (getRouteAssetDescriptor(item.route_data, 'productZip')) continue;
+    const zip = await uploadRouteProductZip(supabase, item.route_data, {
+      bucket: PUBLIC_ROUTE_ASSET_BUCKET,
+      prefix: `routes/${item.id}`,
+      id: item.id,
+      name: item.name,
+    });
     const {error: updateError} = await supabase
       .from(SUPABASE_TABLES.publishedRoutes)
       .update({route_data: zip.routeData, updated_at: new Date().toISOString()})
@@ -1355,30 +1570,49 @@ const importPublishedRoute = async (publishedId, identity) => {
   const existingNames = new Set(routes.map((item) => normalizeRouteNameKey(item?.name)));
   const importName = getPublishedRouteName(published.name, existingNames);
   const importId = `web-${published.id.slice(0, 8)}-${Date.now().toString(36)}`;
-  const importedRoute = {
+  let importedRoute = {
     ...(published.route_data || {}),
     id: importId,
     name: importName,
   };
-  const {data, error} = await supabase
-    .from(SUPABASE_TABLES.routes)
-    .upsert({
-      owner_email: identity.email,
-      id: importId,
+  const storageUserId = await getStorageUserId(identity.email);
+  const prefix = `users/${storageUserId}/routes/${storageSafeSegment(importId)}`;
+  try {
+    importedRoute = await copyRouteAssetsToBucket(supabase, importedRoute, {
+      bucket: PRIVATE_ROUTE_ASSET_BUCKET,
+      prefix,
+      routeName: importName,
+    });
+    const zip = await uploadRouteProductZip(supabase, importedRoute, {
+      bucket: PRIVATE_ROUTE_ASSET_BUCKET,
+      prefix,
+      id: `${identity.email}-${importId}`,
       name: importName,
-      route_data: importedRoute,
-      map_layer: published.map_layer || 'standard',
-      updated_at: new Date().toISOString(),
-    }, {onConflict: 'owner_email,id'})
-    .select('id,updated_at')
-    .single();
-  if (error) throw error;
-  return {
-    ok: true,
-    route: data,
-    importedRoute: importedRoute,
-    routeName: importName,
-  };
+    });
+    importedRoute = zip.routeData;
+    const {data, error} = await supabase
+      .from(SUPABASE_TABLES.routes)
+      .upsert({
+        owner_email: identity.email,
+        id: importId,
+        name: importName,
+        route_data: importedRoute,
+        map_layer: published.map_layer || 'standard',
+        updated_at: new Date().toISOString(),
+      }, {onConflict: 'owner_email,id'})
+      .select('id,updated_at')
+      .single();
+    if (error) throw error;
+    return {
+      ok: true,
+      route: data,
+      importedRoute: importedRoute,
+      routeName: importName,
+    };
+  } catch (error) {
+    await removeRouteAssetDescriptors(supabase, routeAssetStorageDescriptors(importedRoute));
+    throw error;
+  }
 };
 
 const getCloudRouteForDownload = async (routeId, identity) => {
@@ -1416,7 +1650,7 @@ const getPublishedRouteForDownload = async (publishedId) => {
 };
 
 const sendZipDownload = async (res, row) => {
-  const productZip = getRouteAssetUrls(row.route_data).productZip;
+  const productZip = (await resolveRouteAssetUrls(row.route_data)).productZip;
   if (productZip) {
     res.writeHead(302, {
       Location: productZip,
@@ -1441,11 +1675,19 @@ const deletePublishedRoute = async (publishedId, identity) => {
   const supabase = requireSupabaseClient();
   const id = String(publishedId || '').trim();
   if (!id) throw new Error('缺少公开路线 ID。');
+  const {data: existing, error: readError} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .select('route_data')
+    .eq('id', id)
+    .maybeSingle();
+  if (readError) throw readError;
   const {error} = await supabase
     .from(SUPABASE_TABLES.publishedRoutes)
     .delete()
     .eq('id', id);
   if (error) throw error;
+  await removeRouteAssetDescriptors(supabase, routeAssetStorageDescriptors(existing?.route_data)
+    .filter((descriptor) => descriptor.storageBucket === PUBLIC_ROUTE_ASSET_BUCKET));
   return {ok: true};
 };
 
@@ -1823,6 +2065,9 @@ const runRemotion = ({videoData, output, config, logFile, progressStart = 24, pr
       REMOTION_PUBLIC_DIR: publicDir,
       REMOTION_AMAP_KEY: config?.key || keys.key || process.env.REMOTION_AMAP_KEY || '',
       REMOTION_AMAP_SECURITY_CODE: config?.securityJsCode || keys.securityJsCode || process.env.REMOTION_AMAP_SECURITY_CODE || '',
+      ROUTE_RENDER_WIDTH: REMOTION_WIDTH,
+      ROUTE_RENDER_HEIGHT: REMOTION_HEIGHT,
+      ROUTE_RENDER_FPS: REMOTION_FPS,
     };
     const browserExecutable = resolveBrowserPath();
     const remotionCli = resolveNodeModuleFile('@remotion', 'cli', 'remotion-cli.js');
@@ -1859,6 +2104,40 @@ const runRemotion = ({videoData, output, config, logFile, progressStart = 24, pr
     });
   });
 
+const runFfmpegFaststart = ({input, output, logFile}) =>
+  new Promise((resolve, reject) => {
+    const args = ['-y', '-i', input, '-map', '0', '-c', 'copy', '-movflags', '+faststart', output];
+    fs.appendFileSync(logFile, `\n开始 MP4 faststart：${new Date().toLocaleString()}\nffmpeg ${args.join(' ')}\n\n`, 'utf8');
+    const child = spawn('ffmpeg', args, {windowsHide: true});
+    trackChildProcess(child);
+    const logs = [];
+    const pushLog = (chunk) => {
+      const text = chunk.toString();
+      logs.push(text);
+      fs.appendFileSync(logFile, text, 'utf8');
+    };
+    child.stdout.on('data', pushLog);
+    child.stderr.on('data', pushLog);
+    child.on('error', (error) => reject(new Error(`FFmpeg faststart 失败：${error.message}`)));
+    child.on('close', (code) => {
+      if (code === 0 && fs.existsSync(output)) resolve({output, log: logs.join('')});
+      else reject(new Error(`FFmpeg faststart 失败，保留 Remotion 原始文件：${input}`));
+    });
+  });
+
+const probeVideoBitrate = (file) =>
+  new Promise((resolve) => {
+    if (!file || !fs.existsSync(file)) return resolve(null);
+    const child = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=bit_rate', '-of', 'default=noprint_wrappers=1:nokey=1', file], {windowsHide: true});
+    let stdout = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.on('error', () => resolve(null));
+    child.on('close', () => {
+      const bitRate = Number(stdout.trim());
+      resolve(Number.isFinite(bitRate) && bitRate > 0 ? bitRate : null);
+    });
+  });
+
 const runRemotionStill = ({videoData, output, config, logFile, frame = 12, progressStart = 82, progressEnd = 90}) =>
   new Promise((resolve, reject) => {
     try {
@@ -1878,6 +2157,9 @@ const runRemotionStill = ({videoData, output, config, logFile, frame = 12, progr
       REMOTION_PUBLIC_DIR: publicDir,
       REMOTION_AMAP_KEY: config?.key || keys.key || process.env.REMOTION_AMAP_KEY || '',
       REMOTION_AMAP_SECURITY_CODE: config?.securityJsCode || keys.securityJsCode || process.env.REMOTION_AMAP_SECURITY_CODE || '',
+      ROUTE_RENDER_WIDTH: REMOTION_WIDTH,
+      ROUTE_RENDER_HEIGHT: REMOTION_HEIGHT,
+      ROUTE_RENDER_FPS: REMOTION_FPS,
     };
     const browserExecutable = resolveBrowserPath();
     const remotionCli = resolveNodeModuleFile('@remotion', 'cli', 'remotion-cli.js');
@@ -2031,7 +2313,15 @@ const uploadExportedRouteAssets = async (payload, exported, identity) => {
   if (!supabase || !identity?.email || !routeData?.days) return null;
   const routeId = normalizeCloudRouteId(routeData);
   const routeName = String(routeData.name || exported.routeName || '路线').trim() || '路线';
-  const prefix = `users/${storageSafeSegment(identity.email)}/${storageSafeSegment(routeId)}`;
+  const storageUserId = await getStorageUserId(identity.email);
+  const prefix = `users/${storageUserId}/routes/${storageSafeSegment(routeId)}`;
+  const {data: previousRoute, error: previousError} = await supabase
+    .from(SUPABASE_TABLES.routes)
+    .select('route_data')
+    .eq('owner_email', identity.email)
+    .eq('id', routeId)
+    .maybeSingle();
+  if (previousError) throw previousError;
   let nextRouteData = {...routeData, id: routeId, name: routeName};
   const files = [
     ['routeJson', exported.routeJson, 'route.json'],
@@ -2043,16 +2333,24 @@ const uploadExportedRouteAssets = async (payload, exported, identity) => {
   ];
   for (const [key, file, suffix] of files) {
     if (!file || !fs.existsSync(file)) continue;
-    const objectName = `${prefix}/${key}${path.extname(file).toLowerCase() || '.' + suffix.split('.').pop()}`;
-    const url = await uploadBufferToRouteAssets(supabase, objectName, fs.readFileSync(file), contentTypeForPath(file));
+    const descriptor = await uploadBufferToRouteAssets(supabase, {
+      bucket: PRIVATE_ROUTE_ASSET_BUCKET,
+      prefix,
+      key,
+      buffer: fs.readFileSync(file),
+      contentType: contentTypeForPath(file),
+      fileName: path.basename(file) || `${key}.${suffix.split('.').pop()}`,
+    });
     nextRouteData = withRouteAsset(nextRouteData, key, {
-      url,
-      storageBucket: ROUTE_ASSET_BUCKET,
-      storagePath: objectName,
-      fileName: path.basename(file),
+      ...descriptor,
     });
   }
-  const zip = await uploadRouteProductZip(supabase, nextRouteData, {id: `${identity.email}-${routeId}`, name: routeName});
+  const zip = await uploadRouteProductZip(supabase, nextRouteData, {
+    bucket: PRIVATE_ROUTE_ASSET_BUCKET,
+    prefix,
+    id: `${identity.email}-${routeId}`,
+    name: routeName,
+  });
   nextRouteData = zip.routeData;
   const {error} = await supabase
     .from(SUPABASE_TABLES.routes)
@@ -2065,7 +2363,18 @@ const uploadExportedRouteAssets = async (payload, exported, identity) => {
       updated_at: new Date().toISOString(),
     }, {onConflict: 'owner_email,id'});
   if (error) throw error;
-  return getRouteAssetUrls(nextRouteData);
+  const nextPaths = new Set(routeAssetStorageDescriptors(nextRouteData).map((descriptor) => `${descriptor.storageBucket}/${descriptor.storagePath}`));
+  const oldDescriptors = routeAssetStorageDescriptors(previousRoute?.route_data)
+    .filter((descriptor) => descriptor.storageBucket === PRIVATE_ROUTE_ASSET_BUCKET)
+    .filter((descriptor) => !nextPaths.has(`${descriptor.storageBucket}/${descriptor.storagePath}`));
+  if (oldDescriptors.length) {
+    setTimeout(() => {
+      removeRouteAssetDescriptors(supabase, oldDescriptors).catch((cleanupError) => {
+        console.warn('Failed to cleanup old route assets:', cleanupError.message || cleanupError);
+      });
+    }, 0);
+  }
+  return resolveRouteAssetUrls(nextRouteData);
 };
 
 const exportRouteBundle = async (payload, routeRoot, identity) => {
@@ -2076,8 +2385,10 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
   assertExportNotCancelled();
   setExportProgress({phase: 'manual', message: '正在生成 MD 手册…', percent: 14});
   const output = path.join(archived.dir, `${archived.safeName}.mp4`);
+  const renderOutput = path.join(archived.dir, `${archived.safeName}.render.mp4`);
   const logFile = path.join(archived.dir, 'latest-render.log');
   let result = {output: null};
+  let videoBitrate = null;
   let routeMapImage = archived.routeMapImage;
   let routeMapError = null;
   let mapBgImage = null;
@@ -2109,12 +2420,20 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
         renderMode: 'video',
         ...(mapBgImage ? {staticMapImage: toPublicAssetPath(mapBgImage)} : {}),
       },
-      output,
+      output: renderOutput,
       config: payload.config,
       logFile,
       progressStart: 24,
       progressEnd: 78,
     });
+    assertExportNotCancelled();
+    setExportProgress({phase: 'faststart', message: '正在优化 MP4 播放…', percent: 80});
+    await runFfmpegFaststart({input: renderOutput, output, logFile});
+    videoBitrate = await probeVideoBitrate(output);
+    try {
+      fs.rmSync(renderOutput, {force: true});
+    } catch (_) {}
+    result = {output};
   } else {
     setExportProgress({phase: 'map', message: '正在生成路线图片…', percent: 42});
   }
@@ -2168,6 +2487,7 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
     mapBgError,
     manualPdf,
     pdfError,
+    videoBitrate,
   };
   try {
     assertExportNotCancelled();
