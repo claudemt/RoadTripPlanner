@@ -30,6 +30,8 @@
     async function saveFromEditor(point) {
       const description = el('pointScenicDescription').value.trim();
       const files = [...(el('pointScenicImages').files || [])];
+      const shouldPublish = Boolean(el('pointPublishScenic')?.checked);
+      if (!shouldPublish) return null;
       return saveScenicInfo({
         name: point.name,
         title: point.name,
@@ -119,6 +121,19 @@
       return null;
     }
 
+    async function getLibraryInfo(name) {
+      if (typeof localService.getScenic === 'function') {
+        const {response, data} = await localService.getScenic(name);
+        if (response.ok && data?.spot) {
+          window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
+            .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(name));
+          window.SCENIC_SPOTS.push(data.spot);
+          return data.spot;
+        }
+      }
+      return ensureInfo(name);
+    }
+
     async function showSpotInfo(name) {
       const spot = await ensureInfo(name);
       if (!spot) return toast('暂时没有这个地点的图文介绍。');
@@ -165,6 +180,7 @@
       saveFromEditor,
       saveScenicInfo,
       ensureInfo,
+      getLibraryInfo,
       showSpotInfo,
       openLightbox,
       closeSpotPanel,

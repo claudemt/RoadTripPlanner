@@ -979,8 +979,18 @@ const toCloudScene = (item) => item ? {
   title: item.title,
   description: item.description || '',
   images: item.images || [],
+  version: Number(item.version || 1),
   updatedAt: item.updated_at,
 } : null;
+
+const getCloudSceneVersion = async (supabase, normalizedName) => {
+  const {count, error} = await supabase
+    .from(SUPABASE_TABLES.sceneRevisions)
+    .select('id', {count: 'exact', head: true})
+    .eq('normalized_name', normalizedName);
+  if (error) throw error;
+  return Math.max(1, Number(count || 0) + 1);
+};
 
 const getCloudScenic = async (name) => {
   const supabase = getSupabaseClient();
@@ -993,7 +1003,9 @@ const getCloudScenic = async (name) => {
     .eq('normalized_name', normalized)
     .maybeSingle();
   if (error) throw error;
-  return {ok: true, spot: toCloudScene(data)};
+  if (!data) return {ok: true, spot: null, version: 0};
+  const version = await getCloudSceneVersion(supabase, normalized);
+  return {ok: true, spot: toCloudScene({...data, version}), version};
 };
 
 const dataUrlToImage = (image) => {
@@ -1046,6 +1058,7 @@ const buildTextDiff = (before, after) => {
 };
 
 const saveSceneRevision = async (supabase, existing, next, identity) => {
+  if (!existing) return;
   const beforeDescription = String(existing?.description || '');
   const afterDescription = String(next.description || '');
   const beforeImages = Array.isArray(existing?.images) ? existing.images : [];
@@ -1104,7 +1117,8 @@ const saveCloudScenic = async (payload, identity) => {
     .select('id,name,title,description,images,updated_at')
     .single();
   if (error) throw error;
-  return {ok: true, folderName: normalized, spot: toCloudScene(data)};
+  const version = await getCloudSceneVersion(supabase, normalized);
+  return {ok: true, folderName: normalized, spot: toCloudScene({...data, version}), version};
 };
 
 const listCloudSceneRevisions = async (name) => {

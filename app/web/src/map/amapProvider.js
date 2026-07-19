@@ -176,7 +176,7 @@
           this.geocoder.getLocation(keyword, (gStatus, gResult) => {
             const geo = gStatus === 'complete' && gResult.geocodes && gResult.geocodes[0];
             if (geo && geo.location) resolve({ name: keyword, lng: Number(geo.location.lng), lat: Number(geo.location.lat) });
-            else reject(new Error('请换更具体的名称，或用地图点选'));
+            else reject(new Error('请换一个更具体的地点名称。'));
           });
         });
       });
@@ -185,8 +185,8 @@
     reverseGeocode(lng, lat) {
       return new Promise((resolve) => {
         this.geocoder.getAddress([lng, lat], (status, result) => {
-          if (status === 'complete' && result.regeocode) resolve(result.regeocode.formattedAddress || '地图点选位置');
-          else resolve('地图点选位置');
+          if (status === 'complete' && result.regeocode) resolve(result.regeocode.formattedAddress || '地图位置');
+          else resolve('地图位置');
         });
       });
     }

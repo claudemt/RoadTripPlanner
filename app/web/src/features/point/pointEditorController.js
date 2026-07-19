@@ -16,7 +16,6 @@
     onChanged
   }) {
     let context = null;
-    let mapClickEnabled = false;
     const transportModes = ['drive', 'ride', 'walk'];
 
     function normalizeTransportMode(value) {
@@ -46,14 +45,38 @@
       return {lng: parts[0], lat: parts[1]};
     }
 
-    function isMapClickEnabled() {
-      return mapClickEnabled;
+    function setScenicVersion(spot) {
+      const version = Number(spot?.version || 0);
+      if (el('pointScenicVersion')) {
+        el('pointScenicVersion').textContent = version
+          ? `库中最新版 v${version}，发布后为 v${version + 1}`
+          : '库中暂无介绍，发布后为 v1';
+      }
+      if (el('pointPublishScenicLabel')) {
+        el('pointPublishScenicLabel').textContent = version
+          ? `发布为 v${version + 1}`
+          : '发布为 v1';
+      }
     }
 
-    function toggleMapClick() {
-      mapClickEnabled = !mapClickEnabled;
-      el('useMapClickBtn').textContent = '地图点选：' + (mapClickEnabled ? '开' : '关');
-      toast(mapClickEnabled ? '已开启地图点选，点击地图即可填入坐标。' : '已关闭地图点选。');
+    async function importScenicFromLibrary(name) {
+      const targetName = String(name || el('pointName')?.value || el('pointSearchInput')?.value || '').trim();
+      if (!targetName) return toast('请先选择或输入地点名称。');
+      try {
+        const spot = await scenicController.getLibraryInfo(targetName);
+        setScenicVersion(spot);
+        if (!spot) {
+          el('pointScenicDescription').value = '';
+          toast('库中暂时没有这个景点介绍。');
+          return null;
+        }
+        el('pointScenicDescription').value = spot.description || '';
+        toast(`已导入库中最新版 v${spot.version || 1}。`);
+        return spot;
+      } catch (error) {
+        toast('导入景点介绍失败：' + error.message);
+        return null;
+      }
     }
 
     function open(nextContext) {
@@ -87,10 +110,13 @@
       setTransportMode(point?.transportMode || 'drive');
       el('pointScenicDescription').value = '';
       el('pointScenicImages').value = '';
+      if (el('pointPublishScenic')) el('pointPublishScenic').checked = false;
+      setScenicVersion(null);
       scenicController.updateImageList();
       if (point?.name) {
-        scenicController.ensureInfo(point.name).then((spot) => {
+        scenicController.getLibraryInfo(point.name).then((spot) => {
           if (!context) return;
+          setScenicVersion(spot);
           el('pointScenicDescription').value = spot?.description || '';
         }).catch(() => {});
       }
@@ -104,8 +130,6 @@
     function close() {
       el('pointModal').classList.remove('open');
       context = null;
-      mapClickEnabled = false;
-      el('useMapClickBtn').textContent = '地图点选：关';
     }
 
     async function confirm() {
@@ -135,7 +159,7 @@
         const scenic = await scenicController.saveFromEditor(point);
         if (scenic) {
           toast(scenicController.isShared?.()
-            ? '景点介绍已更新，并发布为公共介绍。'
+            ? `景点介绍已发布为 v${scenic.spot?.version || scenic.version || ''}。`
             : '景点介绍已保存到本地。');
         }
       } catch (error) {
@@ -219,12 +243,11 @@
 
     return {
       parseLngLat,
-      isMapClickEnabled,
-      toggleMapClick,
       setTransportMode,
       open,
       close,
       confirm,
+      importScenicFromLibrary,
       testModalPoint,
       testExistingPoint
     };

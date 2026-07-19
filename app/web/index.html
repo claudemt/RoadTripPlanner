@@ -228,14 +228,21 @@
           </div>
         </div>
         <div class="scenic-editor">
-          <label>景点介绍（站点用户共同维护）</label>
+          <label>景点介绍</label>
+          <div class="scenic-source-row">
+            <button class="small primary" id="pointImportScenicBtn" type="button">从库导入介绍</button>
+            <span id="pointScenicVersion">库中暂无介绍</span>
+          </div>
+          <label class="scenic-publish-toggle">
+            <input id="pointPublishScenic" type="checkbox" />
+            <span id="pointPublishScenicLabel">发布为下一版</span>
+          </label>
           <textarea id="pointScenicDescription" placeholder="输入这个地点的介绍、游玩提示、特色等"></textarea>
           <input id="pointScenicImages" type="file" accept="image/*" multiple />
           <div class="scenic-image-list" id="pointScenicImageList">未选择图片</div>
         </div>
         <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">
           <button class="primary" id="pointConfirmBtn">确定</button>
-          <button id="useMapClickBtn">地图点选：关</button>
           <button id="pointCancelBtn">取消</button>
         </div>
       </div>

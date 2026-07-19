@@ -185,12 +185,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       await routeMap.createMap('map', {
         zoom: 5,
         center: [104.2, 35.8],
-      }, (point) => {
-        if (!pointEditor.isMapClickEnabled()) return;
-        reverseName(point.lng, point.lat).then((name) => {
-          setPointForm(name, point.lng, point.lat);
-          toast('已从地图点击位置取点。');
-        });
       });
       setMapLayer(currentMapLayer);
 
@@ -258,6 +252,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('pointSearchInput').addEventListener('input', onSearchInput);
       el('pointSearchInput').addEventListener('keydown', onSearchKeydown);
       el('pointScenicImages').onchange = updateScenicImageList;
+      if (el('pointImportScenicBtn')) el('pointImportScenicBtn').onclick = () => pointEditor.importScenicFromLibrary();
       el('pointConfirmBtn').onclick = confirmPointEdit;
       el('pointCancelBtn').onclick = closePointEditor;
       el('pointModalClose').onclick = closePointEditor;
@@ -267,7 +262,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         if (!e.target.closest('.route-combo')) closeEmptyRouteMenu();
         scenicController.handleOutsideClick(e.target);
       });
-      el('useMapClickBtn').onclick = pointEditor.toggleMapClick;
     }
 
     function bindAccountControls() {
