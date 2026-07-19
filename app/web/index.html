@@ -3,62 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="登录后规划、保存并整理自己的自驾路线。" />
+  <meta name="description" content="通过 Caddy 身份代理访问的自驾路线规划工具。" />
   <title>山河路书</title>
   <link rel="stylesheet" href="./styles/main.css">
 </head>
-<body>
-  <section class="auth-gate" id="authGate" aria-label="登录">
-    <div class="auth-photo" aria-hidden="true"></div>
-    <div class="auth-shade" aria-hidden="true"></div>
-    <svg class="auth-route" viewBox="0 0 1440 900" preserveAspectRatio="none" aria-hidden="true">
-      <path class="auth-route-shadow" d="M-40 760 C180 650 300 815 470 655 S720 540 810 620 S1040 750 1160 530 S1360 260 1500 360" />
-      <path class="auth-route-line" d="M-40 760 C180 650 300 815 470 655 S720 540 810 620 S1040 750 1160 530 S1360 260 1500 360" />
-    </svg>
-
-    <header class="auth-nav">
-      <div class="auth-brand">
-        <span class="auth-brand-mark">R</span>
-        <span id="authSiteName">山河路书</span>
-      </div>
-    </header>
-
-    <div class="auth-copy">
-      <p class="auth-eyebrow" id="authEyebrow">YOUR OWN ROADBOOK</p>
-      <h1>把几天的路，<br>排成一张清楚的行程。</h1>
-    </div>
-
-    <div class="auth-login-rail">
-      <form class="auth-form" id="identityLoginForm">
-        <div class="auth-input-row identity-row">
-          <button class="auth-submit" id="authSubmitBtn" type="submit">开始旅程</button>
-        </div>
-      </form>
-
-      <button class="auth-preview" id="previewModeBtn" type="button" hidden>进入本地预览</button>
-      <p class="auth-message" id="authMessage" aria-live="polite"></p>
-    </div>
-
-  </section>
-
+<body class="app-ready">
   <div class="app">
     <aside class="sidebar">
       <div class="header">
         <div>
           <h1>山河路书</h1>
-          <p id="accountMode">本地模式</p>
+          <p id="accountMode">Caddy 身份代理</p>
         </div>
         <div class="account">
-          <span id="accountEmail" class="account-email">正在连接</span>
-          <button class="user-menu-button" id="openAccountBtn" type="button" aria-label="打开个人工作台" title="个人工作台" hidden>
-            <span class="user-menu-icon" aria-hidden="true"></span>
-          </button>
+          <span id="accountEmail" class="account-email">正在识别用户</span>
         </div>
       </div>
 
       <div class="toolbar top-toolbar">
         <button class="primary" id="calcBtn">刷新</button>
         <button class="primary" id="exportBtn" title="网站版下载 JSON；本地版可导出文档和视频">导出</button>
+        <button id="routeLibraryBtn">路线库</button>
         <button id="mapLayerBtn" title="地图类型：标准/卫星/混合">类型</button>
         <button id="configBtn">配置</button>
         <select id="mapLayerSelect" title="地图类型" hidden>
@@ -146,8 +111,17 @@
             <input id="pointLngLat" placeholder="lng,lat" />
           </div>
         </div>
+        <div class="transport-chooser" id="pointTransportSection">
+          <label>到达这个点的方式</label>
+          <input id="pointTransportMode" type="hidden" value="drive" />
+          <div class="transport-options">
+            <button type="button" data-point-transport="drive" title="汽车">车</button>
+            <button type="button" data-point-transport="ride" title="自行车">骑</button>
+            <button type="button" data-point-transport="walk" title="步行">步</button>
+          </div>
+        </div>
         <div class="scenic-editor">
-          <label>景点介绍（登录用户共同维护）</label>
+          <label>景点介绍（站点用户共同维护）</label>
           <textarea id="pointScenicDescription" placeholder="输入这个地点的介绍、游玩提示、特色等"></textarea>
           <input id="pointScenicImages" type="file" accept="image/*" multiple />
           <div class="scenic-image-list" id="pointScenicImageList">未选择图片</div>
@@ -157,6 +131,23 @@
           <button id="useMapClickBtn">地图点选：关</button>
           <button id="pointCancelBtn">取消</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="routeLibraryModal">
+    <div class="modal-card route-library-card">
+      <div class="modal-head">
+        <strong>路线库</strong>
+        <button class="small" id="routeLibraryCloseBtn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="toolbar route-library-actions" style="padding:0 0 8px;border:0;background:transparent">
+          <button class="primary" id="publishCurrentRouteBtn">发布当前路线</button>
+          <button id="refreshRouteLibraryBtn">刷新</button>
+        </div>
+        <div class="hint" id="routeManageStatus">个人路线相互隔离；发布后的路线可供所有用户导入。</div>
+        <div class="archive-list" id="archiveList"></div>
       </div>
     </div>
   </div>
@@ -188,7 +179,7 @@
           <button class="primary" id="setupSaveBtn">保存并加载地图</button>
           <button id="setupTestBtn">测试连接</button>
         </div>
-        <div class="hint" id="setupStatus">本地版写入浏览器和本机配置；网站版由 admin 统一维护。</div>
+        <div class="hint" id="setupStatus">配置保存在服务器本机，仅通过 Caddy 代理访问。</div>
       </div>
     </div>
   </div>
@@ -214,142 +205,10 @@
           <button class="primary" id="saveConfigBtn">保存并刷新</button>
           <button id="testConfigBtn">测试连接</button>
         </div>
-        <div class="hint" id="configStatus">保存后页面会重新加载高德地图。密钥只存在本机浏览器。</div>
+        <div class="hint" id="configStatus">保存后页面会重新加载高德地图。配置写入服务器本机。</div>
       </div>
     </div>
   </div>
-
-  <section class="account-center" id="accountCenter" aria-label="个人工作台" aria-hidden="true">
-    <header class="account-page-header">
-      <div class="account-page-brand">
-        <span class="account-page-mark">R</span>
-        <div>
-          <strong>山河路书</strong>
-          <span>个人工作台</span>
-        </div>
-      </div>
-      <button class="account-map-return" id="accountCenterClose" type="button">
-        <span aria-hidden="true">←</span>
-        返回地图
-      </button>
-    </header>
-
-    <div class="account-page-layout">
-      <aside class="account-navigation">
-        <div class="account-identity">
-          <span class="account-avatar" id="accountInitial">U</span>
-          <strong id="accountProfileEmail">当前账户</strong>
-          <span>云端个人空间</span>
-        </div>
-        <nav aria-label="个人工作台导航">
-          <button class="active" data-account-view="routes" type="button" aria-current="page">
-            <span class="account-nav-index">01</span>
-            <span>路线管理</span>
-            <small id="myRouteCount">0</small>
-          </button>
-          <button data-account-view="exports" type="button">
-            <span class="account-nav-index">02</span>
-            <span>导出文件</span>
-            <small id="myExportCount">0</small>
-          </button>
-          <button data-account-view="settings" type="button">
-            <span class="account-nav-index">03</span>
-            <span>账户设置</span>
-          </button>
-        </nav>
-      </aside>
-
-      <main class="account-workspace">
-        <header class="account-workspace-head">
-          <p id="accountPageEyebrow">ROUTES</p>
-          <h2 id="accountPageTitle">路线管理</h2>
-          <span id="accountPageSubtitle">在这里新建、改名和删除路线；地图页只负责编辑行程内容。</span>
-        </header>
-
-        <section class="account-center-view" id="myRoutesView">
-          <form class="account-route-form" id="accountRouteCreateForm">
-            <div class="account-route-form-field">
-              <label for="accountRouteNameInput">路线名称</label>
-              <input id="accountRouteNameInput" placeholder="如：九兰线、青甘线" maxlength="80" required />
-            </div>
-            <div class="account-route-form-field account-route-days-field">
-              <label for="accountRouteDaysInput">预计天数</label>
-              <input id="accountRouteDaysInput" type="number" min="1" max="365" value="1" required />
-            </div>
-            <button class="primary" id="accountCreateRouteBtn" type="submit">新建路线</button>
-          </form>
-          <div class="account-list-head" aria-hidden="true">
-            <span>路线</span>
-            <span>最近更新</span>
-            <span>操作</span>
-          </div>
-          <div class="account-list" id="myRoutesList"></div>
-        </section>
-
-        <section class="account-center-view" id="myExportsView" hidden>
-          <div class="account-list-head export-list-head" aria-hidden="true">
-            <span>导出任务</span>
-            <span>状态</span>
-            <span>文件</span>
-          </div>
-          <div class="account-list" id="myExportsList"></div>
-        </section>
-
-        <section class="account-center-view account-settings" id="mySettingsView" hidden>
-          <div class="settings-section">
-            <h3>账户</h3>
-            <dl>
-              <div>
-                <dt>账号</dt>
-                <dd id="accountSettingsEmail">—</dd>
-              </div>
-              <div>
-                <dt>数据空间</dt>
-                <dd>个人路线与导出文件</dd>
-              </div>
-            </dl>
-          </div>
-          <div class="settings-section">
-            <h3>身份中心</h3>
-            <dl>
-              <div>
-                <dt>登录服务</dt>
-                <dd>Cloud-IAM</dd>
-              </div>
-              <div>
-                <dt>密码管理</dt>
-                <dd>在身份中心修改密码或找回密码</dd>
-              </div>
-            </dl>
-            <div class="settings-actions">
-              <button class="primary" id="openIdentityConsoleBtn" type="button">打开账户中心</button>
-            </div>
-          </div>
-          <div class="settings-section">
-            <h3>站点服务</h3>
-            <dl>
-              <div>
-                <dt>地图</dt>
-                <dd>高德地图 · 站点统一配置</dd>
-              </div>
-              <div>
-                <dt>共享内容</dt>
-                <dd>景点介绍与图片可由登录用户共同维护</dd>
-              </div>
-            </dl>
-          </div>
-          <div class="settings-danger-zone">
-            <div>
-              <strong>退出当前账户</strong>
-              <span>本机登录状态将被清除，云端内容不会删除。</span>
-            </div>
-            <button class="danger" id="signOutBtn" type="button" hidden>退出登录</button>
-          </div>
-        </section>
-
-      </main>
-    </div>
-  </section>
 
   <div class="modal" id="exportModal">
     <div class="modal-card">
@@ -362,7 +221,7 @@
           <input id="exportRenderVideo" type="checkbox" style="width:auto" />
           <span>同时渲染 MP4 视频</span>
         </label>
-        <div class="hint">导出任务会在后台生成路线 JSON、视频数据、路线图和 MD/PDF；勾选后额外生成 MP4，可在“我的 → 导出内容”中随时查看。</div>
+        <div class="hint">导出任务会在后台生成路线 JSON、视频数据、路线图和 MD/PDF；勾选后额外生成 MP4，完成后可在导出目录中查看。</div>
         <div id="exportTaskPanel" class="hint" style="display:none;margin-top:10px;border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)">
           <div id="exportTaskStatus">已有导出任务。</div>
           <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">

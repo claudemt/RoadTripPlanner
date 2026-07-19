@@ -20,54 +20,100 @@
     syncEditor,
     renderAll,
     calculateRoute,
-    isMapReady
+    isMapReady,
+    getEditableRoute
   }) {
     let archivedRoutes = [];
+    let publishedRoutes = [];
 
     function getRoutes() {
       return archivedRoutes;
     }
 
-    function renderArchiveList(routes) {
-      const box = el('archiveList');
-      if (!box) return;
-      if (!routes.length) {
-        box.innerHTML = '';
-        return;
-      }
-      box.innerHTML = routes.map((item) => {
-        const version = encodeURIComponent(item.updatedAt || item.archivedAt || Date.now());
-        const base = localService.routeAssetBase(item);
-        if (item.cloud) {
-          return `
-            <div class="archive-item cloud-route-item">
-              <div class="archive-item-head">
-                <span>${escapeHtml(cleanRouteName(item.name) || item.safeName)}</span>
-                <span class="cloud-save-state">云端</span>
-              </div>
-              <div class="archive-item-actions">
-                <button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>
-              </div>
-            </div>
-          `;
-        }
+    function setStatus(message) {
+      const status = el('routeManageStatus');
+      if (status) status.textContent = message || '';
+    }
+
+    function routeTitle(item) {
+      return cleanRouteName(item?.name) || item?.safeName || item?.id || '未命名路线';
+    }
+
+    function renderMyRoute(item) {
+      const version = encodeURIComponent(item.updatedAt || item.archivedAt || Date.now());
+      const base = localService.routeAssetBase(item);
+      const canLoad = item.cloud || item.routeJson || item.routeData;
+      const publishButton = localService.capabilities?.publishedRoutes
+        ? `<button class="small" onclick="publishArchivedRoute('${escapeJsAttr(item.safeName)}')">发布</button>`
+        : '';
+      if (item.cloud) {
         return `
-          <div class="archive-item">
+          <div class="archive-item cloud-route-item">
             <div class="archive-item-head">
-              <span>${escapeHtml(cleanRouteName(item.name) || item.safeName)}</span>
-            </div>
-            <div class="asset-tags">
-              <span class="asset-tag ${item.routeJson ? 'ok' : 'wait'}">线路JSON ${item.routeJson ? '✓' : '待生成'}</span>
-              <span class="asset-tag ${item.manualPdf ? 'ok' : 'wait'}">产品文档 ${item.manualPdf ? '✓' : '待生成'}</span>
+              <span>${escapeHtml(routeTitle(item))}</span>
+              <span class="cloud-save-state">私有</span>
             </div>
             <div class="archive-item-actions">
-              ${item.routeJson ? `<button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>` : ''}
-              ${item.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.mp4?v=${version}`)}', '_blank')">播放MP4</button>` : ''}
-              ${item.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.travel.pdf?v=${version}`)}', '_blank')">查看PDF</button>` : ''}
+              <button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>
+              ${publishButton}
             </div>
           </div>
         `;
-      }).join('');
+      }
+      return `
+        <div class="archive-item">
+          <div class="archive-item-head">
+            <span>${escapeHtml(routeTitle(item))}</span>
+          </div>
+          <div class="asset-tags">
+            <span class="asset-tag ${item.routeJson ? 'ok' : 'wait'}">线路JSON ${item.routeJson ? '✓' : '待生成'}</span>
+            <span class="asset-tag ${item.manualPdf ? 'ok' : 'wait'}">产品文档 ${item.manualPdf ? '✓' : '待生成'}</span>
+          </div>
+          <div class="archive-item-actions">
+            ${canLoad ? `<button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>` : ''}
+            ${publishButton}
+            ${item.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.mp4?v=${version}`)}', '_blank')">播放MP4</button>` : ''}
+            ${item.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.travel.pdf?v=${version}`)}', '_blank')">查看PDF</button>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPublishedRoute(item) {
+      const time = item.archivedAt ? new Date(item.archivedAt).toLocaleString() : '';
+      return `
+        <div class="archive-item">
+          <div class="archive-item-head">
+            <span>${escapeHtml(routeTitle(item))}</span>
+            <span class="cloud-save-state">公共</span>
+          </div>
+          <div class="archive-item-sub">发布者：${escapeHtml(item.publishedByEmail || '未知')}${time ? ` · ${escapeHtml(time)}` : ''}</div>
+          <div class="archive-item-actions">
+            <button class="small primary" onclick="importPublishedRoute('${escapeJsAttr(item.id)}')">导入</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderArchiveList() {
+      const box = el('archiveList');
+      if (!box) return;
+      const myHtml = archivedRoutes.length
+        ? archivedRoutes.map(renderMyRoute).join('')
+        : '<div class="hint">你还没有保存过路线。</div>';
+      const publishedHtml = publishedRoutes.length
+        ? publishedRoutes.map(renderPublishedRoute).join('')
+        : '<div class="hint">还没有公共路线。发布当前路线后，所有用户都可以导入。</div>';
+      box.innerHTML = `
+        <section class="archive-section">
+          <div class="archive-section-title"><span>我的路线</span><span>${archivedRoutes.length}</span></div>
+          ${myHtml}
+        </section>
+        <section class="archive-section">
+          <div class="archive-section-title"><span>公共路线</span><span>${publishedRoutes.length}</span></div>
+          ${publishedHtml}
+        </section>
+      `;
     }
 
     async function refresh({autoSelectFirst = false} = {}) {
@@ -76,6 +122,11 @@
         const {response, data: result} = await localService.listRoutes();
         if (!response.ok || !result?.ok) throw new Error(result?.message || '无法读取导出列表');
         archivedRoutes = result.routes || [];
+        if (localService.capabilities?.publishedRoutes) {
+          const {response: publishResponse, data: publishResult} = await localService.listPublishedRoutes();
+          if (!publishResponse.ok || !publishResult?.ok) throw new Error(publishResult?.message || '无法读取公共路线');
+          publishedRoutes = publishResult.routes || [];
+        }
         const state = getState();
         const routeBook = state.routeBook;
         let route = state.route;
@@ -114,27 +165,30 @@
         renderDays();
         renderSummary();
         syncEditor();
-        renderArchiveList(archivedRoutes);
+        renderArchiveList();
+        setStatus('路线库已同步。');
       } catch (error) {
-        const suffix = localService.capabilities?.mode === 'local'
-          ? '。请确认 start.bat 本地服务正在运行。'
-          : '。请检查登录状态和 Supabase 数据表配置。';
+        const suffix = '。请确认 Caddy 已传入用户邮箱，并且本机服务正在运行。';
         if (box) box.innerHTML = `<div class="hint">读取路线失败：${escapeHtml(error.message)}${suffix}</div>`;
       }
+    }
+
+    async function getArchiveRouteData(item) {
+      if (item?.routeData) return item.routeData;
+      const base = localService.routeAssetBase(item);
+      const version = encodeURIComponent(item?.updatedAt || item?.archivedAt || Date.now());
+      const response = await fetch(`${base}.route.json?v=${version}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error('无法读取导出线路');
+      return data;
     }
 
     async function load(safeName) {
       try {
         const cached = archivedRoutes.find((item) => item.safeName === safeName);
-        let data = cached?.routeData || null;
-        const fileBase = cached?.fileBase || safeName;
-        if (!data) {
-          const base = localService.routeAssetBase({safeName, fileBase});
-          const version = encodeURIComponent(cached?.updatedAt || cached?.archivedAt || Date.now());
-          const response = await fetch(`${base}.route.json?v=${version}`);
-          data = await response.json();
-          if (!response.ok) throw new Error('无法读取导出线路');
-        }
+        if (!cached) throw new Error('未找到这条路线');
+        const data = await getArchiveRouteData(cached);
+        const fileBase = cached.fileBase || safeName;
 
         const state = getState();
         const routeBook = state.routeBook;
@@ -148,7 +202,7 @@
 
         try {
           const base = localService.routeAssetBase({safeName, fileBase});
-          const version = encodeURIComponent(cached?.updatedAt || cached?.archivedAt || Date.now());
+          const version = encodeURIComponent(cached.updatedAt || cached.archivedAt || Date.now());
           const response = await fetch(`${base}.mp4-data.json?v=${version}`);
           if (response.ok) {
             const video = await response.json();
@@ -176,7 +230,60 @@
       }
     }
 
-    return {getRoutes, refresh, load};
+    async function publishRouteData(routeData, mapLayer) {
+      const {response, data} = await localService.publishRoute(routeData, mapLayer);
+      if (!response.ok || !data?.ok) throw new Error(data?.message || '发布失败');
+      await refresh();
+      toast('路线已发布到公共路线库。');
+      setStatus(`已发布：${routeData.name || '未命名路线'}`);
+    }
+
+    async function publishCurrent() {
+      try {
+        const state = getState();
+        const routeData = getEditableRoute ? getEditableRoute(state.route) : state.route;
+        await publishRouteData(routeData, state.currentMapLayer || 'standard');
+      } catch (error) {
+        toast('发布失败：' + error.message);
+      }
+    }
+
+    async function publishRouteById(safeName) {
+      try {
+        const state = getState();
+        const localRoute = state.routeBook.routes.find((item) => item.id === safeName);
+        const cached = archivedRoutes.find((item) => item.safeName === safeName);
+        const routeData = localRoute || await getArchiveRouteData(cached);
+        await publishRouteData(getEditableRoute ? getEditableRoute(routeData) : routeData, cached?.mapLayer || state.currentMapLayer || 'standard');
+      } catch (error) {
+        toast('发布失败：' + error.message);
+      }
+    }
+
+    async function importPublished(routeId) {
+      try {
+        const {response, data} = await localService.importPublishedRoute(routeId);
+        if (!response.ok || !data?.ok) throw new Error(data?.message || '导入失败');
+        const state = getState();
+        const routeBook = state.routeBook;
+        const route = normalizeRoute(data.importedRoute);
+        route.segmentCache = {};
+        routeBook.routes.push(route);
+        routeBook.activeRouteId = route.id;
+        setState({route, currentRouteView: 'all', segmentResults: []});
+        saveRoute(false);
+        renderAll(true);
+        if (isMapReady() && route.days.some((day) => getDayPoints(day).map((item) => item.point).filter(isPointReady).length >= 2)) {
+          calculateRoute();
+        }
+        await refresh();
+        toast('已导入公共路线：' + (route.name || data.routeName || '未命名路线'));
+      } catch (error) {
+        toast('导入失败：' + error.message);
+      }
+    }
+
+    return {getRoutes, refresh, load, publishCurrent, publishRouteById, importPublished};
   }
 
   window.ArchiveController = {create};

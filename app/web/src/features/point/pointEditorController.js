@@ -17,6 +17,28 @@
   }) {
     let context = null;
     let mapClickEnabled = false;
+    const transportModes = ['drive', 'ride', 'walk'];
+
+    function normalizeTransportMode(value) {
+      return window.RouteModel?.normalizeTransportMode?.(value) || 'drive';
+    }
+
+    function setTransportMode(value) {
+      const mode = normalizeTransportMode(value);
+      document.querySelectorAll('[data-point-transport]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.pointTransport === mode);
+      });
+      const input = el('pointTransportMode');
+      if (input) input.value = mode;
+    }
+
+    function readTransportMode() {
+      return normalizeTransportMode(el('pointTransportMode')?.value);
+    }
+
+    function shouldShowTransport(nextContext) {
+      return !(nextContext?.mode === 'replace' && nextContext?.kind === 'from');
+    }
 
     function parseLngLat(value) {
       const parts = String(value).split(',').map((item) => Number(item.trim()));
@@ -61,6 +83,8 @@
       el('pointSearchInput').value = '';
       el('pointName').value = point?.name || '';
       el('pointLngLat').value = point ? `${fixed(point.lng)},${fixed(point.lat)}` : '';
+      el('pointTransportSection')?.toggleAttribute('hidden', !shouldShowTransport(nextContext));
+      setTransportMode(point?.transportMode || 'drive');
       el('pointScenicDescription').value = '';
       el('pointScenicImages').value = '';
       scenicController.updateImageList();
@@ -91,7 +115,8 @@
       const point = {
         name: el('pointName').value.trim() || el('pointSearchInput').value.trim() || '未命名点位',
         lng: lnglat.lng,
-        lat: lnglat.lat
+        lat: lnglat.lat,
+        transportMode: shouldShowTransport(context) ? readTransportMode() : 'drive'
       };
       const currentContext = context;
       const day = getRoute().days[currentContext.dayIndex];
@@ -149,11 +174,12 @@
       if (!checks.length) return {ok: true};
       for (const [from, to] of checks) {
         try {
-          await routeMap.drivingRoute(from, to);
+          const mode = normalizeTransportMode(to.transportMode);
+          await routeMap.route(from, to, mode);
         } catch (_) {
           return {
             ok: false,
-            message: `${from.name} → ${to.name} 无可用驾车路线。建议点“改”，从地图匹配项中重新选一个更准确的 POI。`
+            message: `${from.name} → ${to.name} 无可用路线。建议点“改”，从地图匹配项中重新选一个更准确的 POI。`
           };
         }
       }
@@ -177,10 +203,11 @@
       const point = {
         name: el('pointName').value.trim() || el('pointSearchInput').value.trim() || '测试点位',
         lng: lnglat.lng,
-        lat: lnglat.lat
+        lat: lnglat.lat,
+        transportMode: shouldShowTransport(context) ? readTransportMode() : 'drive'
       };
       const result = await testPointInContext(context, point);
-      toast(result.ok ? '测试通过：该地点可参与相邻驾车路线规划。' : '测试失败：' + result.message);
+      toast(result.ok ? '测试通过：该地点可参与相邻路线规划。' : '测试失败：' + result.message);
     }
 
     async function testExistingPoint(dayIndex, pointIndex) {
@@ -194,6 +221,7 @@
       parseLngLat,
       isMapClickEnabled,
       toggleMapClick,
+      setTransportMode,
       open,
       close,
       confirm,

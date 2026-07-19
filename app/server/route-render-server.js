@@ -3,6 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const {spawn} = require('child_process');
+let createSupabaseClient = null;
+try {
+  ({createClient: createSupabaseClient} = require('@supabase/supabase-js'));
+} catch (_) {}
 
 const SERVER_ROOT = __dirname;
 const APPLICATION_ROOT = path.dirname(SERVER_ROOT);
@@ -19,7 +23,22 @@ const SOURCE_WEB_ROOT = path.join(APPLICATION_ROOT, 'web');
 const PUBLIC_ROOT = fs.existsSync(path.join(BUILD_ROOT, 'index.html')) ? BUILD_ROOT : SOURCE_WEB_ROOT;
 const SCENE_ROOT = path.join(DATA_ROOT, 'scenes');
 const PORT = Number(process.env.AMAP_ROUTE_PORT || 6137);
-const HOST = process.env.AMAP_ROUTE_HOST || '127.0.0.1';
+const HOST = String(process.env.AMAP_ROUTE_HOST || '127.0.0.1').trim() || '127.0.0.1';
+const USER_EMAIL_HEADER = String(process.env.ROADTRIP_USER_EMAIL_HEADER || 'X-Forwarded-Email').trim().toLowerCase();
+const REQUIRE_USER_EMAIL = !/^(0|false|no|off)$/i.test(String(process.env.ROADTRIP_REQUIRE_USER_EMAIL || 'true').trim());
+const FALLBACK_USER_EMAIL = String(process.env.ROADTRIP_FALLBACK_USER_EMAIL || '').trim();
+const ADMIN_EMAILS_RAW = String(process.env.ROADTRIP_ADMIN_EMAILS || 'admin@map.bestapi.best');
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const REQUIRE_SUPABASE = /^(1|true|yes|on)$/i.test(String(process.env.ROADTRIP_REQUIRE_SUPABASE || 'false').trim());
+const SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_SCENE_IMAGE_BUCKET || 'roadtrip-scene-images').trim();
+const SUPABASE_TABLES = {
+  routes: String(process.env.ROADTRIP_ROUTES_TABLE || 'roadtrip_routes').trim(),
+  scenes: String(process.env.ROADTRIP_SCENES_TABLE || 'roadtrip_scenes').trim(),
+  settings: String(process.env.ROADTRIP_SETTINGS_TABLE || 'roadtrip_app_settings').trim(),
+  publishedRoutes: String(process.env.ROADTRIP_PUBLISHED_ROUTES_TABLE || 'roadtrip_published_routes').trim(),
+};
+const USER_EMAIL_HEADER_CANDIDATES = [USER_EMAIL_HEADER];
 const MAX_BODY = 220 * 1024 * 1024;
 const REMOTION_CONCURRENCY = String(process.env.ROUTE_RENDER_CONCURRENCY || 4);
 const REMOTION_CRF = String(process.env.ROUTE_RENDER_CRF || 20);
@@ -28,6 +47,49 @@ const KEY_CANDIDATES = [
   path.join(AMAP_ROOT, '.env.local'),
   path.join(AMAP_ROOT, '.env'),
 ];
+
+const firstHeaderValue = (value) => {
+  if (Array.isArray(value)) return value[0] || '';
+  return String(value || '').split(',')[0].trim();
+};
+
+const normalizeEmail = (value) => {
+  const text = firstHeaderValue(value).replace(/^"|"$/g, '').trim();
+  const angleMatch = text.match(/<([^<>]+@[^<>]+)>/);
+  const candidate = (angleMatch?.[1] || text).trim().toLowerCase();
+  if (!candidate || candidate.length > 254 || /[\r\n]/.test(candidate)) return '';
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : '';
+};
+
+const ADMIN_EMAILS = ADMIN_EMAILS_RAW
+  .split(',')
+  .map((item) => normalizeEmail(item))
+  .filter(Boolean);
+
+const isAdminIdentity = (identity) => Boolean(identity?.email && ADMIN_EMAILS.includes(identity.email));
+
+const getRequestIdentity = (req) => {
+  for (const headerName of USER_EMAIL_HEADER_CANDIDATES) {
+    const email = normalizeEmail(req.headers[headerName]);
+    if (email) return {email, id: email, source: headerName};
+  }
+  if (!REQUIRE_USER_EMAIL) {
+    const email = normalizeEmail(FALLBACK_USER_EMAIL);
+    if (email) return {email, id: email, source: 'fallback-env'};
+  }
+  return {email: '', id: '', source: ''};
+};
+
+const userRouteSegment = (email) =>
+  String(email || '_anonymous')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^a-z0-9@._+-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 120) || '_anonymous';
+
+const getUserRouteRoot = (identity) => path.join(ROUTE_ROOT, 'users', userRouteSegment(identity?.email));
+
 const NODE_MODULE_ROOTS = [
   path.join(APPLICATION_ROOT, 'node_modules'),
   path.join(AMAP_ROOT, 'node_modules'),
@@ -219,9 +281,7 @@ const updateProgressFromLog = (text, start, end, phase, fallbackMessage) => {
 const send = (res, status, data, contentType = 'application/json;charset=utf-8') => {
   res.writeHead(status, {
     'Content-Type': contentType,
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Cache-Control': 'no-store',
   });
   if (contentType.startsWith('application/json')) res.end(JSON.stringify(data, null, 2));
   else res.end(data);
@@ -239,6 +299,9 @@ const toBasicPoint = (point) => ({
   name: point?.name || '',
   lng: Number(point?.lng || 0),
   lat: Number(point?.lat || 0),
+  transportMode: ['drive', 'ride', 'walk'].includes(String(point?.transportMode || '').trim())
+    ? String(point.transportMode).trim()
+    : 'drive',
 });
 
 const toBasicRouteData = (routeData) => {
@@ -603,6 +666,357 @@ const writeSceneInfo = (payload) => {
   return {folderName, file: sceneFile, spot};
 };
 
+let supabaseClient = null;
+
+const getSupabaseClient = () => {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  if (!createSupabaseClient) throw new Error('缺少 @supabase/supabase-js 依赖，请先执行 npm install。');
+  if (!supabaseClient) {
+    supabaseClient = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: {persistSession: false, autoRefreshToken: false},
+    });
+  }
+  return supabaseClient;
+};
+
+const isSupabaseConfigured = () => Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && createSupabaseClient);
+
+const requireSupabaseClient = () => {
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error('Supabase 未配置：请在 /etc/roadplan/map.env 设置 SUPABASE_URL 和 SUPABASE_SERVICE_ROLE_KEY。');
+  return supabase;
+};
+
+const normalizeCloudRouteId = (routeData) => {
+  const id = String(routeData?.id || '').trim();
+  if (id) return id.slice(0, 120);
+  const name = safeName(routeData?.name || 'route').toLowerCase();
+  return `${name}-${Date.now().toString(36)}`.slice(0, 120);
+};
+
+const toCloudRouteItem = (item) => ({
+  name: item.name,
+  safeName: item.id,
+  fileBase: item.id,
+  archivedAt: item.created_at,
+  updatedAt: item.updated_at,
+  mapLayer: item.map_layer,
+  routeJson: true,
+  videoJson: false,
+  mp4: false,
+  manualMd: false,
+  manualPdf: false,
+  cloud: true,
+  routeData: item.route_data,
+});
+
+const listCloudRoutes = async (identity) => {
+  const supabase = getSupabaseClient();
+  if (!supabase || !identity?.email) return null;
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.routes)
+    .select('id,name,route_data,map_layer,created_at,updated_at')
+    .eq('owner_email', identity.email)
+    .order('updated_at', {ascending: false});
+  if (error) throw error;
+  return (data || []).map(toCloudRouteItem);
+};
+
+const saveCloudRoute = async (payload, identity) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法保存路线。');
+  const routeData = payload?.routeData || payload?.route;
+  if (!routeData?.days) throw new Error('缺少路线数据。');
+  const id = normalizeCloudRouteId(routeData);
+  const normalizedRoute = {...routeData, id};
+  const row = {
+    owner_email: identity.email,
+    id,
+    name: String(normalizedRoute.name || '未命名路线').trim() || '未命名路线',
+    route_data: normalizedRoute,
+    map_layer: String(payload.mapLayer || 'standard').trim() || 'standard',
+    updated_at: new Date().toISOString(),
+  };
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.routes)
+    .upsert(row, {onConflict: 'owner_email,id'})
+    .select('id,updated_at')
+    .single();
+  if (error) throw error;
+  return {ok: true, route: data};
+};
+
+const deleteCloudRoute = async (routeId, identity) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法删除路线。');
+  const id = String(routeId || '').trim();
+  if (!id) throw new Error('缺少路线 ID。');
+  const {error} = await supabase
+    .from(SUPABASE_TABLES.routes)
+    .delete()
+    .eq('owner_email', identity.email)
+    .eq('id', id);
+  if (error) throw error;
+  return {ok: true};
+};
+
+const toCloudScene = (item) => item ? {
+  id: item.id,
+  name: item.name,
+  title: item.title,
+  description: item.description || '',
+  images: item.images || [],
+  updatedAt: item.updated_at,
+} : null;
+
+const getCloudScenic = async (name) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const normalized = normalizeSceneName(name);
+  if (!normalized) throw new Error('景点名称不能为空。');
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.scenes)
+    .select('id,name,title,description,images,updated_at')
+    .eq('normalized_name', normalized)
+    .maybeSingle();
+  if (error) throw error;
+  return {ok: true, spot: toCloudScene(data)};
+};
+
+const dataUrlToImage = (image) => {
+  const dataUrl = String(image?.dataUrl || '');
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return {
+    contentType: match[1],
+    buffer: Buffer.from(match[2], 'base64'),
+    ext: safeExt(image?.name, match[1]),
+    name: safeName(image?.name || 'image'),
+  };
+};
+
+const uploadCloudSceneImages = async (supabase, normalizedName, images) => {
+  const urls = [];
+  for (const image of images || []) {
+    const parsed = dataUrlToImage(image);
+    if (!parsed) continue;
+    const objectName = `scenes/${normalizedName}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${parsed.name}${parsed.ext}`;
+    const {error} = await supabase.storage
+      .from(SCENE_IMAGE_BUCKET)
+      .upload(objectName, parsed.buffer, {
+        contentType: parsed.contentType || 'image/jpeg',
+        upsert: false,
+      });
+    if (error) throw error;
+    const {data} = supabase.storage.from(SCENE_IMAGE_BUCKET).getPublicUrl(objectName);
+    if (data?.publicUrl) urls.push(data.publicUrl);
+  }
+  return urls;
+};
+
+const saveCloudScenic = async (payload, identity) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法保存景点。');
+  const name = String(payload?.name || payload?.title || '').trim();
+  const normalized = normalizeSceneName(name);
+  if (!normalized) throw new Error('景点名称不能为空。');
+
+  const {data: existing, error: readError} = await supabase
+    .from(SUPABASE_TABLES.scenes)
+    .select('id,name,title,description,images')
+    .eq('normalized_name', normalized)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  const uploaded = await uploadCloudSceneImages(supabase, normalized, payload?.images || []);
+  const images = [...new Set([...(existing?.images || []), ...uploaded])];
+  const row = {
+    ...(existing?.id ? {id: existing.id} : {}),
+    normalized_name: normalized,
+    name,
+    title: String(payload?.title || existing?.title || name).trim() || name,
+    description: String(payload?.description || existing?.description || '').trim(),
+    images,
+    updated_by_email: identity.email,
+    updated_at: new Date().toISOString(),
+  };
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.scenes)
+    .upsert(row, {onConflict: 'normalized_name'})
+    .select('id,name,title,description,images,updated_at')
+    .single();
+  if (error) throw error;
+  return {ok: true, folderName: normalized, spot: toCloudScene(data)};
+};
+
+const readCloudConfig = async () => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.settings)
+    .select('value')
+    .eq('key', 'amap')
+    .maybeSingle();
+  if (error) throw error;
+  const saved = data?.value || {};
+  return {
+    key: String(saved.key || '').trim(),
+    securityJsCode: String(saved.securityJsCode || '').trim(),
+    source: data?.value ? 'Supabase app settings' : null,
+  };
+};
+
+const writeCloudConfig = async ({key, securityJsCode}, identity) => {
+  const supabase = requireSupabaseClient();
+  if (!isAdminIdentity(identity)) throw new Error('只有管理员可以修改地图配置。');
+  const {error} = await supabase
+    .from(SUPABASE_TABLES.settings)
+    .upsert({
+      key: 'amap',
+      value: {key, securityJsCode},
+      updated_by_email: identity.email,
+      updated_at: new Date().toISOString(),
+    }, {onConflict: 'key'});
+  if (error) throw error;
+  return {ok: true, source: 'Supabase app settings'};
+};
+
+const normalizeRouteNameKey = (value) =>
+  String(value || '')
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+const getPublishedRouteName = (name, existingNames = new Set()) => {
+  const base = safeName(String(name || '').trim() || '未命名路线');
+  let candidate = `${base}-web`;
+  let index = 2;
+  while (existingNames.has(candidate.toLowerCase())) {
+    candidate = `${base}-web-${index}`;
+    index += 1;
+  }
+  return candidate;
+};
+
+const listPublishedRoutes = async () => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .select('id,name,route_data,map_layer,published_by_email,source_route_id,source_owner_email,published_at,updated_at')
+    .order('published_at', {ascending: false});
+  if (error) throw error;
+  return (data || []).map((item) => ({
+    id: item.id,
+    name: item.name,
+    safeName: item.id,
+    fileBase: item.id,
+    archivedAt: item.published_at,
+    updatedAt: item.updated_at,
+    mapLayer: item.map_layer,
+    routeJson: false,
+    videoJson: false,
+    mp4: false,
+    manualMd: false,
+    manualPdf: false,
+    cloud: true,
+    published: true,
+    publishedByEmail: item.published_by_email,
+    sourceRouteId: item.source_route_id,
+    sourceOwnerEmail: item.source_owner_email,
+    routeData: item.route_data,
+  }));
+};
+
+const publishCloudRoute = async (payload, identity) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法发布路线。');
+  const routeData = payload?.routeData || payload?.route;
+  if (!routeData?.days) throw new Error('缺少路线数据。');
+  const name = String(routeData.name || '').trim();
+  if (!name) throw new Error('路线名称不能为空。');
+  const nameKey = normalizeRouteNameKey(name);
+  const {data: existing, error: readError} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .select('id')
+    .eq('name_key', nameKey)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (existing) {
+    const error = new Error('该名称已被其他人发布，请换一个名字。');
+    error.status = 409;
+    throw error;
+  }
+  const row = {
+    name: name,
+    name_key: nameKey,
+    published_by_email: identity.email,
+    source_route_id: String(routeData.id || '').trim() || null,
+    source_owner_email: identity.email,
+    route_data: routeData,
+    map_layer: String(payload.mapLayer || 'standard').trim() || 'standard',
+    published_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .insert(row)
+    .select('id,name,published_at')
+    .single();
+  if (error) {
+    if (String(error.code || '') === '23505' || /duplicate/i.test(error.message || '')) {
+      const conflict = new Error('该名称已被其他人发布，请换一个名字。');
+      conflict.status = 409;
+      throw conflict;
+    }
+    throw error;
+  }
+  return {ok: true, published: data};
+};
+
+const importPublishedRoute = async (publishedId, identity) => {
+  const supabase = requireSupabaseClient();
+  if (!identity?.email) throw new Error('缺少用户邮箱，无法导入路线。');
+  const id = String(publishedId || '').trim();
+  if (!id) throw new Error('缺少公开路线 ID。');
+  const {data: published, error: readError} = await supabase
+    .from(SUPABASE_TABLES.publishedRoutes)
+    .select('id,name,route_data,map_layer,published_by_email,source_route_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!published) throw new Error('未找到公开路线。');
+  const routes = await listCloudRoutes(identity) || [];
+  const existingNames = new Set(routes.map((item) => normalizeRouteNameKey(item?.name)));
+  const importName = getPublishedRouteName(published.name, existingNames);
+  const importId = `web-${published.id.slice(0, 8)}-${Date.now().toString(36)}`;
+  const importedRoute = {
+    ...(published.route_data || {}),
+    id: importId,
+    name: importName,
+  };
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.routes)
+    .upsert({
+      owner_email: identity.email,
+      id: importId,
+      name: importName,
+      route_data: importedRoute,
+      map_layer: published.map_layer || 'standard',
+      updated_at: new Date().toISOString(),
+    }, {onConflict: 'owner_email,id'})
+    .select('id,updated_at')
+    .single();
+  if (error) throw error;
+  return {
+    ok: true,
+    route: data,
+    importedRoute: importedRoute,
+    routeName: importName,
+  };
+};
+
 const stripQuote = (value) => String(value || '').trim().replace(/^['"]|['"]$/g, '');
 
 const readKeyFile = () => {
@@ -623,6 +1037,14 @@ const readKeyFile = () => {
     }
   }
   return result;
+};
+
+const readAmapConfig = () => {
+  const file = readKeyFile();
+  return {
+    key: file.key || String(process.env.AMAP_KEY || '').trim(),
+    securityJsCode: file.securityJsCode || String(process.env.AMAP_SECURITY_JS_CODE || '').trim(),
+  };
 };
 
 const writeKeyFile = ({key, securityJsCode}) => {
@@ -873,10 +1295,10 @@ const renderMarkdownPdf = async (markdown, pdfPath, title, baseDir = AMAP_ROOT) 
   }
 };
 
-const archivePayload = (payload) => {
+const archivePayload = (payload, routeRoot, identity) => {
   const routeName = getRouteName(payload);
   const name = safeName(routeName);
-  const dir = path.join(ROUTE_ROOT, name);
+  const dir = path.join(routeRoot, name);
   ensureDir(dir);
 
   const routeData = payload.routeData || payload.route || null;
@@ -902,6 +1324,7 @@ const archivePayload = (payload) => {
         safeName: name,
         archivedAt: now,
         mapLayer: videoData?.mapLayer || payload.mapLayer || null,
+        ownerEmail: identity?.email || null,
       },
       null,
       2,
@@ -1048,13 +1471,13 @@ const latestMtimeIso = (files, fallback) =>
     .reduce((latest, mtime) => (mtime > latest ? mtime : latest), fallback)
     .toISOString();
 
-const listArchivedRoutes = () => {
-  if (!fs.existsSync(ROUTE_ROOT)) return [];
+const listArchivedRoutes = (routeRoot) => {
+  if (!fs.existsSync(routeRoot)) return [];
   return fs
-    .readdirSync(ROUTE_ROOT, {withFileTypes: true})
+    .readdirSync(routeRoot, {withFileTypes: true})
     .filter((entry) => entry.isDirectory())
     .map((entry) => {
-      const dir = path.join(ROUTE_ROOT, entry.name);
+      const dir = path.join(routeRoot, entry.name);
       const metadata = loadJson(path.join(dir, 'metadata.json'), {});
       const routeJsonPath = findRouteJson(dir, entry.name);
       const routeData = routeJsonPath ? loadJson(routeJsonPath, null) : null;
@@ -1069,6 +1492,7 @@ const listArchivedRoutes = () => {
         name: metadata.routeName || routeData?.name || entry.name,
         safeName: entry.name,
         fileBase: baseName,
+        assetPath: path.relative(ROUTE_ROOT, dir).replace(/\\/g, '/'),
         dir,
         archivedAt: metadata.archivedAt || stat.mtime.toISOString(),
         updatedAt,
@@ -1085,7 +1509,7 @@ const listArchivedRoutes = () => {
     .sort((a, b) => String(b.archivedAt).localeCompare(String(a.archivedAt)));
 };
 
-const serveStatic = (req, res) => {
+const serveStatic = (req, res, identity) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/') pathname = '/index.html';
@@ -1099,6 +1523,11 @@ const serveStatic = (req, res) => {
     relativePath = pathname.slice('/route'.length);
   }
   const target = path.resolve(root, `.${relativePath}`);
+  if (pathname.startsWith('/route/')) {
+    const userRoot = path.resolve(getUserRouteRoot(identity));
+    if (!identity?.email && REQUIRE_USER_EMAIL) return send(res, 401, 'Missing user email', 'text/plain;charset=utf-8');
+    if (!isPathInside(userRoot, target)) return send(res, 403, 'Forbidden', 'text/plain;charset=utf-8');
+  }
   const rootPrefix = `${path.resolve(root)}${path.sep}`;
   if (target !== path.resolve(root) && !target.startsWith(rootPrefix)) {
     return send(res, 403, 'Forbidden', 'text/plain;charset=utf-8');
@@ -1128,7 +1557,6 @@ const serveStatic = (req, res) => {
   const stat = fs.statSync(target);
   res.writeHead(200, {
     'Content-Type': mime,
-    'Access-Control-Allow-Origin': '*',
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     Pragma: 'no-cache',
     Expires: '0',
@@ -1137,11 +1565,11 @@ const serveStatic = (req, res) => {
   fs.createReadStream(target).pipe(res);
 };
 
-const exportRouteBundle = async (payload) => {
+const exportRouteBundle = async (payload, routeRoot, identity) => {
   const renderVideo = payload.renderVideo === true;
   assertExportNotCancelled();
   setExportProgress({phase: 'files', message: '正在保存路线数据…', percent: 5});
-  const archived = archivePayload(payload);
+  const archived = archivePayload(payload, routeRoot, identity);
   assertExportNotCancelled();
   setExportProgress({phase: 'manual', message: '正在生成 MD 手册…', percent: 14});
   const output = path.join(archived.dir, `${archived.safeName}.mp4`);
@@ -1244,25 +1672,62 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') return send(res, 204, {});
     const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+    const identity = getRequestIdentity(req);
+    if (req.method === 'GET' && url.pathname === '/api/session') {
+      if (!identity.email && REQUIRE_USER_EMAIL) {
+        return send(res, 401, {
+          ok: false,
+          email: '',
+          message: `Caddy 未传入有效邮箱，请设置请求头 ${USER_EMAIL_HEADER}.`,
+        });
+      }
+      return send(res, 200, {
+        ok: true,
+        authenticated: Boolean(identity.email),
+        email: identity.email,
+        id: identity.id,
+        source: identity.source,
+        isAdmin: isAdminIdentity(identity),
+        capabilities: {
+          cloudRoutes: isSupabaseConfigured(),
+          publishedRoutes: isSupabaseConfigured(),
+          sharedScenes: true,
+          serverExport: true,
+          editableMapConfig: !isSupabaseConfigured() || isAdminIdentity(identity),
+          supabase: isSupabaseConfigured(),
+        },
+      });
+    }
+    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/health' && REQUIRE_USER_EMAIL && !identity.email) {
+      return send(res, 401, {ok: false, message: `缺少 Caddy 用户邮箱请求头：${USER_EMAIL_HEADER}`});
+    }
     if (req.method === 'GET' && url.pathname === '/api/health') {
-      const keys = readKeyFile();
+      const amap = readAmapConfig();
       return send(res, 200, {
         ok: true,
         routeRoot: ROUTE_ROOT,
         remotionRoot: REMOTION_ROOT,
         rendering,
         exportTaskId: activeExport?.id || null,
-        hasKeyFile: Boolean(keys.key && keys.securityJsCode),
+        hasKeyFile: Boolean(amap.key && amap.securityJsCode),
+        supabaseConfigured: isSupabaseConfigured(),
+        host: HOST,
+        identityHeader: USER_EMAIL_HEADER,
+        requireUserEmail: REQUIRE_USER_EMAIL,
       });
     }
     if (req.method === 'GET' && url.pathname === '/api/config') {
       const keys = readKeyFile();
+      const cloud = await readCloudConfig();
+      const key = cloud?.key || keys.key || process.env.AMAP_KEY || '';
+      const securityJsCode = cloud?.securityJsCode || keys.securityJsCode || process.env.AMAP_SECURITY_JS_CODE || '';
       return send(res, 200, {
         ok: true,
-        key: keys.key || '',
-        securityJsCode: keys.securityJsCode || '',
-        configured: Boolean(keys.key && keys.securityJsCode),
-        source: keys.key ? 'data/config/local.env' : null,
+        key,
+        securityJsCode,
+        configured: Boolean(key && securityJsCode),
+        editable: !isSupabaseConfigured() || isAdminIdentity(identity),
+        source: cloud?.source || (keys.key ? 'data/config/local.env' : process.env.AMAP_KEY ? 'process env' : null),
       });
     }
     if (req.method === 'POST' && url.pathname === '/api/config') {
@@ -1270,19 +1735,40 @@ const server = http.createServer(async (req, res) => {
       const key = String(payload.key || '').trim();
       const securityJsCode = String(payload.securityJsCode || '').trim();
       if (!key || !securityJsCode) return send(res, 400, {ok: false, message: 'Key 和安全密钥都必填'});
+      if (isSupabaseConfigured()) {
+        try {
+          const result = await writeCloudConfig({key, securityJsCode}, identity);
+          return send(res, 200, result);
+        } catch (error) {
+          const status = /管理员/.test(error.message) ? 403 : 500;
+          return send(res, status, {ok: false, message: error.message});
+        }
+      }
       const file = writeKeyFile({key, securityJsCode});
       return send(res, 200, {ok: true, file, key, securityJsCode});
     }
+    if (req.method === 'GET' && url.pathname === '/api/scenic') {
+      const name = url.searchParams.get('name') || '';
+      const result = await getCloudScenic(name);
+      return send(res, 200, result || {ok: true, spot: null});
+    }
     if (req.method === 'POST' && url.pathname === '/api/scenic') {
       const payload = await readBody(req);
+      if (isSupabaseConfigured()) {
+        const result = await saveCloudScenic(payload, identity);
+        return send(res, 200, result);
+      }
       const result = writeSceneInfo(payload);
       return send(res, 200, {ok: true, ...result});
     }
     if (req.method === 'GET' && url.pathname === '/api/routes') {
-      const routes = listArchivedRoutes().map((item) => ({
+      const cloudRoutes = await listCloudRoutes(identity);
+      if (cloudRoutes) return send(res, 200, {ok: true, routes: cloudRoutes});
+      const routes = listArchivedRoutes(getUserRouteRoot(identity)).map((item) => ({
         name: item.name,
         safeName: item.safeName,
         fileBase: item.fileBase,
+        assetPath: item.assetPath,
         dir: item.dir,
         archivedAt: item.archivedAt,
         updatedAt: item.updatedAt,
@@ -1295,6 +1781,34 @@ const server = http.createServer(async (req, res) => {
         routeData: item.routeData,
       }));
       return send(res, 200, {ok: true, routes});
+    }
+    if (req.method === 'GET' && url.pathname === '/api/published-routes') {
+      const routes = await listPublishedRoutes();
+      return send(res, 200, {ok: true, routes: routes || []});
+    }
+    if (req.method === 'POST' && url.pathname === '/api/routes') {
+      const payload = await readBody(req);
+      const result = await saveCloudRoute(payload, identity);
+      return send(res, 200, result);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/published-routes') {
+      const payload = await readBody(req);
+      try {
+        const result = await publishCloudRoute(payload, identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname.startsWith('/api/published-routes/') && url.pathname.endsWith('/import')) {
+      const publishedId = decodeURIComponent(url.pathname.slice('/api/published-routes/'.length, -'/import'.length));
+      const result = await importPublishedRoute(publishedId, identity);
+      return send(res, 200, result);
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/routes/')) {
+      const routeId = decodeURIComponent(url.pathname.slice('/api/routes/'.length));
+      const result = await deleteCloudRoute(routeId, identity);
+      return send(res, 200, result);
     }
     if (req.method === 'GET' && url.pathname === '/api/export-progress') {
       return send(res, 200, {ok: true, rendering, exportTaskId: activeExport?.id || null, progress: exportProgress});
@@ -1316,7 +1830,7 @@ const server = http.createServer(async (req, res) => {
         const payload = await readBody(req);
         assertExportNotCancelled();
         if (!payload?.videoData) throw new Error('缺少 videoData');
-        const exported = await exportRouteBundle(payload);
+        const exported = await exportRouteBundle(payload, getUserRouteRoot(identity), identity);
         rendering = false;
         activeExport = null;
         finishExportProgress('导出完成');
@@ -1332,17 +1846,24 @@ const server = http.createServer(async (req, res) => {
         return send(res, 500, {ok: false, message: error.message});
       }
     }
-    if (req.method === 'GET') return serveStatic(req, res);
+    if (req.method === 'GET') return serveStatic(req, res, identity);
     return send(res, 404, {ok: false, message: '接口不存在'});
   } catch (error) {
     return send(res, 500, {ok: false, message: error.message});
   }
 });
 
+if (REQUIRE_SUPABASE && !isSupabaseConfigured()) {
+  console.error('Supabase is required but not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
+  process.exit(1);
+}
+
 server.listen(PORT, HOST, () => {
   console.log(`Route planner server: http://${HOST}:${PORT}`);
+  console.log(`Caddy email header: ${USER_EMAIL_HEADER} (required: ${REQUIRE_USER_EMAIL})`);
   console.log(`Export folder: ${ROUTE_ROOT}`);
   console.log(`Config file candidates: ${KEY_CANDIDATES.join(' | ')}`);
-  const keys = readKeyFile();
-  console.log(`Amap key configured: ${Boolean(keys.key && keys.securityJsCode)}`);
+  console.log(`Supabase configured: ${isSupabaseConfigured()}`);
+  const amap = readAmapConfig();
+  console.log(`Amap key configured: ${Boolean(amap.key && amap.securityJsCode)}`);
 });

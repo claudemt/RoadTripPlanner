@@ -17,9 +17,16 @@
     return `D${index + 1} ${title}`;
   }
 
+  function normalizeTransportMode(value) {
+    const mode = String(value || '').trim().toLowerCase();
+    if (['ride', 'bike', 'bicycle', 'cycling'].includes(mode)) return 'ride';
+    if (['walk', 'walking', 'foot'].includes(mode)) return 'walk';
+    return 'drive';
+  }
+
   function normalizePoint(point, fallbackName, allowIncomplete = false) {
     if (!point) {
-      return allowIncomplete ? { name: fallbackName || '', lng: null, lat: null } : null;
+      return allowIncomplete ? { name: fallbackName || '', lng: null, lat: null, transportMode: 'drive' } : null;
     }
     const lng = point.lng == null || point.lng === '' ? null : Number(point.lng);
     const lat = point.lat == null || point.lat === '' ? null : Number(point.lat);
@@ -28,7 +35,8 @@
     return {
       name: point.name || fallbackName || '',
       lng: hasCoord ? lng : null,
-      lat: hasCoord ? lat : null
+      lat: hasCoord ? lat : null,
+      transportMode: normalizeTransportMode(point.transportMode)
     };
   }
 
@@ -57,9 +65,9 @@
       name,
       days: Array.from({length: count}, (_, index) => ({
         title: `第 ${index + 1} 天`,
-        from: { name: '', lng: null, lat: null },
+        from: { name: '', lng: null, lat: null, transportMode: 'drive' },
         waypoints: [],
-        to: { name: '', lng: null, lat: null }
+        to: { name: '', lng: null, lat: null, transportMode: 'drive' }
       }))
     };
   }
@@ -84,7 +92,8 @@
     return JSON.stringify(getDayPoints(day).map(({ point }) => [
       point.name,
       Number(point.lng).toFixed(6),
-      Number(point.lat).toFixed(6)
+      Number(point.lat).toFixed(6),
+      normalizeTransportMode(point.transportMode)
     ]));
   }
 
@@ -92,6 +101,7 @@
     cleanDayTitle,
     cleanRouteName,
     dayLabel,
+    normalizeTransportMode,
     normalizePoint,
     normalizeRoute,
     createBlankRoute,

@@ -13,6 +13,7 @@
     async resolveTip(tip) { return tip; }
     async resolvePlace() { throw new Error('MapProvider.resolvePlace is not implemented'); }
     async reverseGeocode() { return '地图点选位置'; }
+    async route() { throw new Error('MapProvider.route is not implemented'); }
     async drivingRoute() { throw new Error('MapProvider.drivingRoute is not implemented'); }
     async testSearch() { return false; }
   }

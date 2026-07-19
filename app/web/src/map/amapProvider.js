@@ -1,6 +1,8 @@
 (function () {
   const AMAP_PLUGINS = [
     'AMap.Driving',
+    'AMap.Riding',
+    'AMap.Walking',
     'AMap.PlaceSearch',
     'AMap.AutoComplete',
     'AMap.Geocoder',
@@ -189,31 +191,54 @@
       });
     }
 
-    drivingRoute(from, to) {
+    route(from, to, mode = 'drive') {
+      const normalized = window.RouteModel?.normalizeTransportMode?.(mode) || 'drive';
+      if (normalized === 'ride') return this.ridingRoute(from, to);
+      if (normalized === 'walk') return this.walkingRoute(from, to);
+      return this.drivingRoute(from, to);
+    }
+
+    queryRoute(RouteClass, from, to, options = {}) {
       return new Promise((resolve, reject) => {
-        const driving = new AMap.Driving({
-          policy: AMap.DrivingPolicy.LEAST_TIME,
+        const route = new RouteClass({
+          ...options,
           hideMarkers: true,
           autoFitView: false
         });
-        driving.search([from.lng, from.lat], [to.lng, to.lat], (status, result) => {
+        route.search([from.lng, from.lat], [to.lng, to.lat], (status, result) => {
           if (status !== 'complete' || !result || !result.routes || !result.routes[0]) {
             const message = typeof result === 'string'
               ? result
               : result && result.info
                 ? result.info
-                : '没有可用驾车路线';
+                : '没有可用路线';
             reject(new Error(message === 'CUQPS_HAS_EXCEEDED_THE_LIMIT' ? '高德请求过快，触发 QPS 限制，请稍后重试' : message));
             return;
           }
           const route0 = result.routes[0];
           const path = [];
-          (route0.steps || []).forEach((step) => {
-            (step.path || []).forEach((lnglat) => path.push([lnglat.lng, lnglat.lat]));
+          const steps = route0.steps || route0.rides || route0.walks || [];
+          steps.forEach((step) => {
+            (step.path || []).forEach((lnglat) => {
+              if (Array.isArray(lnglat)) path.push([Number(lnglat[0]), Number(lnglat[1])]);
+              else path.push([Number(lnglat.lng), Number(lnglat.lat)]);
+            });
           });
           resolve({ distance: Number(route0.distance) || 0, duration: Number(route0.time) || 0, path });
         });
       });
+    }
+
+    drivingRoute(from, to) {
+      return this.queryRoute(AMap.Driving, from, to, {policy: AMap.DrivingPolicy.LEAST_TIME});
+    }
+
+    ridingRoute(from, to) {
+      return this.queryRoute(AMap.Riding, from, to);
+    }
+
+    walkingRoute(from, to) {
+      return this.queryRoute(AMap.Walking, from, to);
     }
 
     testSearch(keyword = '天安门') {

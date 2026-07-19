@@ -84,6 +84,10 @@
       return provider.drivingRoute(from, to);
     }
 
+    async function route(from, to, mode = 'drive') {
+      return provider.route(from, to, mode);
+    }
+
     async function calculateDaySegments(day) {
       const points = getDayPoints(day).map((item) => item.point).filter(isPointReady);
       const segments = [];
@@ -91,24 +95,26 @@
       for (let index = 0; index < points.length - 1; index++) {
         const from = points[index];
         const to = points[index + 1];
+        const mode = window.RouteModel?.normalizeTransportMode?.(to.transportMode) || 'drive';
         try {
           await sleep(700);
           let result;
           try {
-            result = await drivingRoute(from, to);
+            result = await route(from, to, mode);
           } catch (error) {
             if (String(error.message || '').includes('QPS')) {
               await sleep(1800);
-              result = await drivingRoute(from, to);
+              result = await route(from, to, mode);
             } else {
               throw error;
             }
           }
-          segments.push({from: from.name, to: to.name, ...result});
+          segments.push({from: from.name, to: to.name, mode, ...result});
         } catch (error) {
           segments.push({
             from: from.name,
             to: to.name,
+            mode,
             distance: 0,
             duration: 0,
             path: [[from.lng, from.lat], [to.lng, to.lat]],
@@ -128,6 +134,7 @@
       render,
       clear,
       calculateDaySegments,
+      route,
       drivingRoute,
       searchTips: (keyword) => provider.searchTips(keyword),
       resolveTip: (tip) => provider.resolveTip(tip),

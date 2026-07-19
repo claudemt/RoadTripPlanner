@@ -11,6 +11,16 @@
     escapeAttr,
     escapeJsAttr
   }) {
+    const transportLabels = {
+      drive: '车',
+      ride: '骑',
+      walk: '步'
+    };
+
+    function normalizeTransportMode(value) {
+      return window.RouteModel?.normalizeTransportMode?.(value) || 'drive';
+    }
+
     function renderRouteSelect({routeBook, route, archivedRoutes}) {
       const localOptions = routeBook.routes
         .map((item) => `<option value="${escapeAttr(item.id)}">${escapeHtml(cleanRouteName(item.name) || item.id)}</option>`)
@@ -63,10 +73,11 @@
         const dayDuration = dayResult.segments.reduce((sum, segment) => sum + (segment.duration || 0), 0);
         const points = getDayPoints(day);
         const title = cleanDayTitle(day.title) || `第 ${dayIndex + 1} 天`;
-        const pointHtml = points.map((item, pointIndex) => {
-          const typeClass = item.role === '起' ? 'start' : item.role === '终' ? 'end' : 'waypoint';
-          const editButtons = item.kind === 'waypoint'
-            ? `<button class="small primary" onclick="openPointEditor({mode:'insertAfter',dayIndex:${dayIndex},afterKind:'waypoint',waypointIndex:${item.waypointIndex}})">后加</button><button class="small" onclick="moveWaypoint(${dayIndex},${item.waypointIndex},-1)">上移</button><button class="small" onclick="moveWaypoint(${dayIndex},${item.waypointIndex},1)">下移</button><button class="small" onclick="openPointEditor({mode:'replace',dayIndex:${dayIndex},kind:'waypoint',waypointIndex:${item.waypointIndex}})">改</button><button class="small danger" onclick="deleteWaypoint(${dayIndex},${item.waypointIndex})">删</button>`
+      const pointHtml = points.map((item, pointIndex) => {
+        const typeClass = item.role === '起' ? 'start' : item.role === '终' ? 'end' : 'waypoint';
+        const mode = normalizeTransportMode(item.point.transportMode);
+        const editButtons = item.kind === 'waypoint'
+          ? `<button class="small primary" onclick="openPointEditor({mode:'insertAfter',dayIndex:${dayIndex},afterKind:'waypoint',waypointIndex:${item.waypointIndex}})">后加</button><button class="small" onclick="moveWaypoint(${dayIndex},${item.waypointIndex},-1)">上移</button><button class="small" onclick="moveWaypoint(${dayIndex},${item.waypointIndex},1)">下移</button><button class="small" onclick="openPointEditor({mode:'replace',dayIndex:${dayIndex},kind:'waypoint',waypointIndex:${item.waypointIndex}})">改</button><button class="small danger" onclick="deleteWaypoint(${dayIndex},${item.waypointIndex})">删</button>`
             : item.kind === 'from'
               ? `<button class="small primary" onclick="openPointEditor({mode:'insertAfter',dayIndex:${dayIndex},afterKind:'from'})">后加</button><button class="small" onclick="openPointEditor({mode:'replace',dayIndex:${dayIndex},kind:'from'})">改</button>`
               : `<button class="small" onclick="openPointEditor({mode:'replace',dayIndex:${dayIndex},kind:'to'})">改</button>`;
@@ -79,12 +90,15 @@
             <div class="point">
               <span class="badge ${typeClass}">${item.role}</span>
               <div>
-                <div class="point-name"${nameClick}>${escapeHtml(item.point.name)}</div>
+                <div class="point-name-row">
+                  <div class="point-name"${nameClick}>${escapeHtml(item.point.name)}</div>
+                  ${item.kind === 'from' ? '' : `<span class="point-mode mode-${mode}" title="${escapeAttr(transportLabels[mode] || '车')}">${escapeHtml(transportLabels[mode] || '车')}</span>`}
+                </div>
                 <div class="point-sub">${fixed(item.point.lng)}, ${fixed(item.point.lat)}</div>
               </div>
               <div class="point-actions">${editButtons}</div>
             </div>
-            ${segmentHtml}`;
+            ${segmentHtml ? segmentHtml.replace('↳ ', `↳ ${escapeHtml(transportLabels[normalizeTransportMode(segment?.mode || points[pointIndex + 1]?.point?.transportMode)] || '车')} · `) : ''}`;
         }).join('');
         return `
           <section class="day">

@@ -10,9 +10,9 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       days: [
         {
           title: '第一天',
-          from: { name: '', lng: null, lat: null },
+          from: { name: '', lng: null, lat: null, transportMode: 'drive' },
           waypoints: [],
-          to: { name: '', lng: null, lat: null }
+          to: { name: '', lng: null, lat: null, transportMode: 'drive' }
         }
       ]
     };
@@ -25,6 +25,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       getDayPoints,
       daySignature
     } = window.RouteModel;
+    const {normalizeTransportMode} = window.RouteModel;
     const normalizeRoute = (input) => window.RouteModel.normalizeRoute(input, defaultRoute.days);
     const {
       formatTripMetric,
@@ -120,7 +121,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       escapeHtml,
       escapeJsAttr,
       toast,
-      getState: () => ({routeBook, route, currentRouteView, segmentResults}),
+      getState: () => ({routeBook, route, currentRouteView, segmentResults, currentMapLayer}),
       setState: (patch) => {
         if ('route' in patch) route = patch.route;
         if ('currentRouteView' in patch) currentRouteView = patch.currentRouteView;
@@ -133,23 +134,13 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       syncEditor,
       renderAll,
       calculateRoute,
-      isMapReady: routeMap.isReady
+      isMapReady: routeMap.isReady,
+      getEditableRoute
     });
     const refreshArchivedRoutes = archiveController.refresh;
     window.loadArchivedRoute = archiveController.load;
-    const accountCenter = window.AccountCenterController.create({
-      el,
-      localService,
-      runtime,
-      escapeHtml,
-      escapeAttr,
-      toast,
-      loadRoute: loadRouteFromAccount,
-      createRoute: createRouteFromAccount,
-      renameRoute: renameRouteById,
-      deleteRoute: deleteRouteById
-    });
-    window.openAccountCenter = accountCenter.open;
+    window.publishArchivedRoute = archiveController.publishRouteById;
+    window.importPublishedRoute = archiveController.importPublished;
     const pointEditor = window.PointEditorController.create({
       el,
       routeMap,
@@ -229,8 +220,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       el('calcBtn').onclick = calculateRoute;
-      if (el('openAccountBtn')) el('openAccountBtn').onclick = () => accountCenter.open('routes');
       el('exportBtn').onclick = openExportModal;
+      bindRouteLibraryControls();
       el('mapLayerSelect').value = currentMapLayer;
       el('mapLayerSelect').onchange = () => setMapLayer(el('mapLayerSelect').value);
       el('mapLayerBtn').onclick = () => {
@@ -266,11 +257,35 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('pointConfirmBtn').onclick = confirmPointEdit;
       el('pointCancelBtn').onclick = closePointEditor;
       el('pointModalClose').onclick = closePointEditor;
+      bindPointTransportControls();
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-wrap')) closeSuggestions();
         scenicController.handleOutsideClick(e.target);
       });
       el('useMapClickBtn').onclick = pointEditor.toggleMapClick;
+    }
+
+    function bindRouteLibraryControls() {
+      if (el('routeLibraryBtn')) el('routeLibraryBtn').onclick = openRouteLibrary;
+      if (el('routeLibraryCloseBtn')) el('routeLibraryCloseBtn').onclick = closeRouteLibrary;
+      if (el('publishCurrentRouteBtn')) el('publishCurrentRouteBtn').onclick = archiveController.publishCurrent;
+      if (el('refreshRouteLibraryBtn')) el('refreshRouteLibraryBtn').onclick = () => refreshArchivedRoutes();
+      if (el('publishCurrentRouteBtn')) el('publishCurrentRouteBtn').hidden = !localService.capabilities?.publishedRoutes;
+    }
+
+    function bindPointTransportControls() {
+      document.querySelectorAll('[data-point-transport]').forEach((button) => {
+        button.onclick = () => pointEditor.setTransportMode(button.dataset.pointTransport);
+      });
+    }
+
+    function openRouteLibrary() {
+      el('routeLibraryModal')?.classList.add('open');
+      refreshArchivedRoutes();
+    }
+
+    function closeRouteLibrary() {
+      el('routeLibraryModal')?.classList.remove('open');
     }
 
     function setTab(tabId) {
@@ -884,7 +899,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         if (!response.ok || !result.ok) throw new Error(result.message || '导出失败');
         if (result.queued) {
           toast(result.job?.render_video ? '全量导出已进入队列，视频会在后台生成。' : '导出任务已进入队列。');
-          await accountCenter.open('exports');
           return;
         }
         setLoading('导出完成', {percent: 100, detail: '完成'});
@@ -954,7 +968,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       el('exportBtn').onclick = openExportModal;
-      if (el('openAccountBtn')) el('openAccountBtn').onclick = () => accountCenter.open('routes');
+      bindRouteLibraryControls();
       el('routeSelect').onchange = selectRouteFromDropdown;
       el('routeViewSelect').onchange = () => {
         currentRouteView = el('routeViewSelect').value;
@@ -1014,7 +1028,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
       if (!hasAmapConfig()) {
         openSetupOverlay(localService.capabilities?.editableMapConfig === false
-          ? '站点尚未配置高德地图。请联系管理员登录 admin 账号填写 Key。'
+          ? '站点尚未配置高德地图。请联系站点管理员填写 Key。'
           : '第一次使用：请配置高德 Web JS API Key 与安全密钥，然后加载交互地图。');
         return;
       }

@@ -1,44 +1,62 @@
-import {createClient} from '@supabase/supabase-js';
-import {initAuthGate} from './auth/authController.js';
-
 const clean = (value) => String(value || '').trim();
 const env = import.meta.env;
 const config = {
   siteName: clean(env.VITE_SITE_NAME) || '山河路书',
-  supabaseUrl: clean(env.VITE_SUPABASE_URL),
-  supabaseKey: clean(env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY),
-  oidcProvider: clean(env.VITE_SUPABASE_OIDC_PROVIDER) || 'custom:cloud-iam',
-  identityAccountUrl: clean(env.VITE_IDENTITY_ACCOUNT_URL || env.VITE_SUPABASE_IDENTITY_ACCOUNT_URL),
-  identityLabel: clean(env.VITE_IDENTITY_LABEL) || 'Cloud-IAM',
   amapKey: clean(env.VITE_AMAP_KEY),
   amapSecurityJsCode: clean(env.VITE_AMAP_SECURITY_JS_CODE),
 };
 
-const cloudConfigured = Boolean(config.supabaseUrl && config.supabaseKey);
-const localHost = ['127.0.0.1', 'localhost'].includes(location.hostname);
-const localServicePage = localHost && location.port === '6137';
-const mode = cloudConfigured ? 'cloud' : localServicePage ? 'local' : 'preview';
-const supabase = cloudConfigured
-  ? createClient(config.supabaseUrl, config.supabaseKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    })
-  : null;
+async function loadProxyIdentity() {
+  try {
+    const response = await fetch('/api/session', {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: {'Accept': 'application/json'},
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok || !data.email) {
+      return {
+        user: null,
+        error: data?.message || `身份信息不可用（HTTP ${response.status}）`,
+      };
+    }
+    const email = clean(data.email).toLowerCase();
+    return {
+      user: {id: email, email},
+      error: null,
+      source: data.source || '',
+      isAdmin: Boolean(data.isAdmin),
+      capabilities: data.capabilities || null,
+    };
+  } catch (error) {
+    return {user: null, error: error?.message || '无法读取代理身份'};
+  }
+}
 
+const identity = await loadProxyIdentity();
 window.APP_RUNTIME = {
-  mode,
+  mode: 'proxy',
   config,
-  supabase,
-  user: null,
-  cloudConfigured,
+  user: identity.user,
+  identityError: identity.error,
+  identitySource: identity.source || '',
+  isAdmin: Boolean(identity.isAdmin),
+  capabilities: identity.capabilities || null,
 };
+
+document.body.classList.add('app-ready');
+const accountEmail = document.getElementById('accountEmail');
+if (accountEmail) {
+  accountEmail.textContent = identity.user?.email || '未识别用户';
+  accountEmail.title = identity.error || identity.user?.email || '';
+  accountEmail.dataset.state = identity.user ? 'ready' : 'error';
+}
+const accountMode = document.getElementById('accountMode');
+if (accountMode) accountMode.textContent = identity.user ? 'Caddy 身份代理' : '身份头缺失';
 
 await import('./config/amapConfig.js');
 await import('./api/localServiceClient.js');
-await import('./api/cloudServiceClient.js');
 await import('./api/appServiceClient.js');
 await import('./map/mapProvider.js');
 await import('./map/amapProvider.js');
@@ -53,10 +71,6 @@ await import('./features/export/exportTaskController.js');
 await import('./features/map/routeMapController.js');
 await import('./features/search/placeSearchController.js');
 await import('./features/archive/archiveController.js');
-await import('./features/account/accountCenterController.js');
 await import('./features/point/pointEditorController.js');
 await import('./features/export/videoDataBuilder.js');
-
-const identity = await initAuthGate(window.APP_RUNTIME);
-window.APP_RUNTIME.user = identity?.user || null;
 await import('./main.js');
