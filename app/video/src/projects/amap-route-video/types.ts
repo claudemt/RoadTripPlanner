@@ -16,6 +16,7 @@ export type VideoPoint = {
   lat: number;
   role: string;
   kind: 'from' | 'waypoint' | 'to' | string;
+  transportMode?: 'drive' | 'ride' | 'walk';
   scenic?: ScenicInfo | null;
 };
 
@@ -24,6 +25,7 @@ export type VideoSegment = {
   to: string;
   distance: number;
   duration: number;
+  mode?: 'drive' | 'ride' | 'walk';
   path: LngLat[];
   error?: string;
 };

@@ -61,6 +61,7 @@
               <span class="cloud-save-state">私有</span>
             </div>
             <div class="archive-item-actions">
+              <button class="small" onclick="accountPreviewRoute('mine','${escapeJsAttr(item.safeName)}')">查看</button>
               <button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>
               ${publishButton}
               ${productZipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(productZipUrl)}', '_blank')">下载ZIP</button>` : ''}
@@ -80,6 +81,7 @@
             <span class="asset-tag ${item.manualPdf ? 'ok' : 'wait'}">产品文档 ${item.manualPdf ? '✓' : '待生成'}</span>
           </div>
           <div class="archive-item-actions">
+            <button class="small" onclick="accountPreviewRoute('mine','${escapeJsAttr(item.safeName)}')">查看</button>
             ${canLoad ? `<button class="small primary" onclick="loadArchivedRoute('${escapeJsAttr(item.safeName)}')">载入</button>` : ''}
             ${publishButton}
             ${productZipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(productZipUrl)}', '_blank')">下载ZIP</button>` : ''}
@@ -101,7 +103,8 @@
           </div>
           <div class="archive-item-sub">发布者：${escapeHtml(item.publishedByEmail || '未知')}${time ? ` · ${escapeHtml(time)}` : ''}</div>
           <div class="archive-item-actions">
-            <button class="small primary" onclick="importPublishedRoute('${escapeJsAttr(item.id)}')">导入</button>
+            <button class="small primary" onclick="accountPreviewRoute('public','${escapeJsAttr(item.id)}')">查看</button>
+            <button class="small" onclick="importPublishedRoute('${escapeJsAttr(item.id)}')">导入</button>
             ${zipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(zipUrl)}', '_blank')">下载ZIP</button>` : ''}
           </div>
         </div>

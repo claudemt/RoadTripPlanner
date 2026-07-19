@@ -25,6 +25,7 @@
           lat: item.point.lat,
           role: item.role,
           kind: item.kind,
+          transportMode: item.point.transportMode || 'drive',
           scenic: scenicMap[item.point.name] || null
         }));
         const segments = (segmentResults[dayIndex]?.segments || []).map((segment) => ({
@@ -32,6 +33,7 @@
           to: segment.to,
           distance: segment.distance || 0,
           duration: segment.duration || 0,
+          mode: segment.mode || 'drive',
           path: segment.path || [],
           error: segment.error || ''
         }));

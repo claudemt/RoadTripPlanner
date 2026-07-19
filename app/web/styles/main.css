@@ -402,23 +402,28 @@
       position: fixed;
       inset: 0;
       display: none;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
-      padding: 20px;
+      padding: max(18px, 4vh) 12px;
+      overflow-y: auto;
       background: rgba(31, 39, 38, .42);
       backdrop-filter: blur(3px);
-      z-index: 10000;
+      z-index: 40000;
     }
     .modal.open { display: flex; }
     .modal-card {
       width: min(520px, 94vw);
+      max-height: calc(100dvh - max(36px, 8vh));
+      display: flex;
+      flex-direction: column;
       background: #fffaf0;
       border: 1px solid var(--border);
       border-radius: 14px;
       box-shadow: var(--shadow);
-      overflow: visible;
+      overflow: hidden;
     }
     .modal-head {
+      flex: 0 0 auto;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -427,8 +432,14 @@
       border-bottom: 1px solid var(--border);
       background: linear-gradient(180deg, #f7ead6, #efe0c8);
     }
-    .modal-body { padding: 12px; }
+    .modal-body {
+      min-height: 0;
+      padding: 12px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
     .route-library-card { width: min(640px, 94vw); }
+    .route-preview-card { width: min(760px, 94vw); }
     .route-library-actions { justify-content: space-between; }
     .transport-chooser {
       display: grid;
@@ -930,10 +941,10 @@
     }
 
     .spot-panel {
-      position: absolute;
+      position: fixed;
       right: 28px;
       top: 28px;
-      z-index: 8;
+      z-index: 45000;
       display: none;
       width: min(360px, calc(100vw - 430px));
       max-height: calc(100vh - 36px);
@@ -1019,7 +1030,7 @@
     .image-lightbox {
       position: fixed;
       inset: 0;
-      z-index: 20000;
+      z-index: 50000;
       display: none;
       align-items: center;
       justify-content: center;
@@ -1178,6 +1189,61 @@
       margin-top: 8px;
       flex-wrap: wrap;
     }
+    .route-preview-body {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+    }
+    .route-preview-day {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid #d7c9b5;
+      background: #fff;
+    }
+    .route-preview-day-head {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .route-preview-day-head strong {
+      color: var(--primary-dark);
+      font-family: var(--mono);
+      font-size: 16px;
+    }
+    .route-preview-day-head span {
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .route-preview-points {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 7px;
+      line-height: 1.5;
+    }
+    .route-preview-point {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      color: #35413c;
+      font-size: 14px;
+    }
+    .route-preview-point b {
+      display: inline-grid;
+      width: 22px;
+      height: 22px;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--primary);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    .route-preview-arrow { color: #9a7761; }
+    .route-preview-empty { color: var(--muted); font-size: 14px; }
     .points { padding: 4px 7px 6px; }
     .point {
       display: grid;
@@ -1275,7 +1341,7 @@
     .setup-overlay {
       position: fixed;
       inset: 0;
-      z-index: 40;
+      z-index: 40000;
       display: none;
       align-items: center;
       justify-content: center;
@@ -1680,6 +1746,11 @@
     }
 
     @media (max-width: 640px) {
+      .modal { padding: 10px 8px; }
+      .modal-card {
+        width: 100%;
+        max-height: calc(100dvh - 20px);
+      }
       .auth-photo { background-position: 58% center; }
       .auth-copy { bottom: 360px; }
       .auth-copy h1 { font-size: 34px; line-height: 1.22; }

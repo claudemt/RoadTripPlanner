@@ -3,6 +3,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     const ROUTE_COLORS = ['#1677ff', '#16a34a', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
     const localService = window.AppServiceClient.create();
     const el = (id) => document.getElementById(id);
+    const dialogs = window.DialogController.create();
 
     const defaultRoute = {
       id: 'blank-route',
@@ -236,10 +237,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         setMapLayer(next);
         toast(`地图类型：${next === 'standard' ? '标准' : next === 'satellite' ? '卫星' : '卫星+道路'}`);
       };
-      if (el('configBtn')) el('configBtn').onclick = openConfigModal;
-      el('configCloseBtn').onclick = () => el('configModal').classList.remove('open');
-      el('saveConfigBtn').onclick = saveAmapConfig;
-      el('testConfigBtn').onclick = testAmapConfig;
       bindExportModal();
       el('spotCloseBtn').onclick = scenicController.closeSpotPanel;
       el('imageLightbox').onclick = scenicController.closeLightbox;
@@ -264,6 +261,11 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('pointCancelBtn').onclick = closePointEditor;
       el('pointModalClose').onclick = closePointEditor;
       bindPointTransportControls();
+      dialogs.register('pointModal', closePointEditor);
+      dialogs.register('routeLibraryModal', closeRouteLibrary);
+      dialogs.register('exportModal', closeExportModal);
+      dialogs.register('setupOverlay', closeSetupOverlay);
+      dialogs.bind();
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-wrap')) closeSuggestions();
         if (!e.target.closest('.route-combo')) closeEmptyRouteMenu();
@@ -290,7 +292,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
       if (el('adminRefreshBtn')) el('adminRefreshBtn').onclick = refreshAdminDashboard;
       if (el('accountLogoutBtn')) el('accountLogoutBtn').onclick = () => { location.href = '/logout'; };
-      if (el('sceneDiffCloseBtn')) el('sceneDiffCloseBtn').onclick = () => el('sceneDiffModal').classList.remove('open');
+      if (el('sceneDiffCloseBtn')) el('sceneDiffCloseBtn').onclick = () => dialogs.close('sceneDiffModal');
     }
 
     function openAccountCenter() {
@@ -356,6 +358,43 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       try { return new Date(value).toLocaleString(); } catch (_) { return ''; }
     }
 
+    function routeDayPoints(day) {
+      if (Array.isArray(day?.points)) return day.points.filter((point) => point?.name);
+      return [day?.from, ...(day?.waypoints || []), day?.to].filter((point) => point?.name);
+    }
+
+    function showRoutePreview(routeData) {
+      if (!routeData?.days) return toast('这条路线没有可预览的行程。');
+      el('routePreviewTitle').textContent = cleanRouteName(routeData.name) || '路线预览';
+      el('routePreviewBody').innerHTML = routeData.days.map((day, dayIndex) => {
+        const points = routeDayPoints(day);
+        const pointList = points.length
+          ? points.map((point, pointIndex) => `
+              <span class="route-preview-point">
+                <b>${pointIndex + 1}</b>${escapeHtml(point.name)}
+              </span>
+            `).join('<span class="route-preview-arrow">→</span>')
+          : '<span class="route-preview-empty">当天还没有地点。</span>';
+        return `
+          <section class="route-preview-day">
+            <div class="route-preview-day-head">
+              <strong>D${dayIndex + 1}</strong>
+              <span>${escapeHtml(cleanDayTitle(day.title) || `第 ${dayIndex + 1} 天`)}</span>
+            </div>
+            <div class="route-preview-points">${pointList}</div>
+          </section>
+        `;
+      }).join('');
+      dialogs.open('routePreviewModal');
+    }
+
+    window.accountPreviewRoute = function(scope, routeId) {
+      const routeData = scope === 'public'
+        ? archiveController.getPublishedRoutes?.().find((item) => item.id === routeId)?.routeData
+        : routeBook.routes.find((item) => item.id === routeId || item.name === routeId);
+      showRoutePreview(routeData);
+    };
+
     function renderAccountRoutes() {
       const box = el('accountRouteList');
       const publicBox = el('accountPublicRouteList');
@@ -374,7 +413,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
             </div>
             <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt || item.archivedAt))}</span>
             <div class="account-item-actions">
-              <button class="small primary" onclick="accountOpenRoute('${escapeJsAttr(item.id)}')">打开</button>
+              <button class="small primary" onclick="accountPreviewRoute('mine','${escapeJsAttr(item.id)}')">查看</button>
+              <button class="small" onclick="accountOpenRoute('${escapeJsAttr(item.id)}')">打开</button>
               <button class="small" onclick="accountRenameRoute('${escapeJsAttr(item.id)}')">改名</button>
               <button class="small" onclick="accountPublishRoute('${escapeJsAttr(item.id)}')">发布</button>
               <button class="small danger" onclick="accountDeleteRoute('${escapeJsAttr(item.id)}')">删除</button>
@@ -394,7 +434,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
               </div>
               <span class="account-item-time">${escapeHtml(routeTime(item.archivedAt))}</span>
               <div class="account-item-actions">
-                <button class="small primary" onclick="accountImportPublished('${escapeJsAttr(item.id)}')">导入</button>
+                <button class="small primary" onclick="accountPreviewRoute('public','${escapeJsAttr(item.id)}')">查看</button>
+                <button class="small" onclick="accountImportPublished('${escapeJsAttr(item.id)}')">导入</button>
                 ${zipUrl ? `<button class="small" onclick="window.open('${escapeJsAttr(zipUrl)}', '_blank')">ZIP</button>` : ''}
               </div>
             </div>
@@ -467,11 +508,11 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
               <strong>${escapeHtml(item.title || item.name || '未命名景点')}</strong>
               <span>v${escapeHtml(item.version || 1)} · ${escapeHtml(item.updatedByEmail || '未知用户')}</span>
             </div>
-            <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt))}</span>
+              <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt))}</span>
             <div class="account-item-actions">
               <button class="small primary" onclick="showSpotInfo('${escapeJsAttr(item.name || item.title)}')">查看</button>
               <button class="small" onclick="accountImportScene('${escapeJsAttr(item.name || item.title)}')">导入</button>
-              <button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">版本</button>
+              ${runtime.isAdmin ? '' : `<button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">版本</button>`}
             </div>
           </div>
         `).join('') : '<div class="account-empty">公共景点库暂时为空。</div>';
@@ -539,7 +580,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         const scenes = (data.scenes || []).map((item) => `
           <div class="account-item admin-content-item">
             <div class="account-item-main"><strong>景点：${escapeHtml(item.title || item.name)}</strong><span>${escapeHtml(item.updated_by_email || '未知')}</span></div>
-            <div class="account-item-actions"><button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">Diff</button><button class="small danger" onclick="accountDeleteScene('${escapeJsAttr(item.name || item.title)}')">删除</button></div>
+            <div class="account-item-actions"><button class="small danger" onclick="accountDeleteScene('${escapeJsAttr(item.name || item.title)}')">删除</button></div>
           </div>
         `).join('');
         routesBox.innerHTML = routes || '<div class="account-empty">还没有公共路线。</div>';
@@ -694,18 +735,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (configButton) configButton.onclick = () => openSetupOverlay('请检查 Key、安全密钥和域名白名单。');
     }
 
-    function openConfigModal() {
-      if (localService.capabilities?.editableMapConfig === false || runtime.isAdmin) {
-        return toast('网站地图配置由管理员统一维护。');
-      }
-      el('amapKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
-      el('amapSecurityInput').value = window.AMAP_PLANNER_CONFIG?.securityJsCode || '';
-      el('configStatus').textContent = localService.capabilities?.mode === 'cloud'
-        ? '保存后会写入站点配置，所有用户刷新后使用这组 Key。'
-        : '保存后页面会重新加载高德地图。密钥只存在本机浏览器。';
-      el('configModal').classList.add('open');
-    }
-
     function bindExportModal() {
       if (!el('exportModal')) return;
       el('exportCancelBtn').onclick = closeExportModal;
@@ -773,10 +802,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       location.reload();
     }
 
-    function saveAmapConfig() {
-      saveAmapConfigFromInputs('amapKeyInput', 'amapSecurityInput', 'configStatus');
-    }
-
     function testAmapConfigFromInputs(keyId, securityId, statusId) {
       const statusEl = statusId ? el(statusId) : null;
       const key = el(keyId).value.trim();
@@ -798,10 +823,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
             : '连接失败：高德没有返回 POI，请检查 Key、服务权限和安全密钥。';
         }
       });
-    }
-
-    function testAmapConfig() {
-      testAmapConfigFromInputs('amapKeyInput', 'amapSecurityInput', 'configStatus');
     }
 
     function saveRoute(showToast = true) {
@@ -1300,7 +1321,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
             </div>
           `).join('')
           : '<div class="account-empty">还没有编辑记录。</div>';
-        el('sceneDiffModal').classList.add('open');
+        dialogs.open('sceneDiffModal');
       } catch (error) {
         toast('读取编辑记录失败：' + error.message);
       }
@@ -1434,31 +1455,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function bootstrapUiWithoutMap() {
-      // Allow configuring before map is ready.
       bindEvents();
-      if (el('configBtn')) el('configBtn').onclick = openConfigModal;
-      el('configCloseBtn').onclick = () => el('configModal').classList.remove('open');
-      el('saveConfigBtn').onclick = saveAmapConfig;
-      el('testConfigBtn').onclick = testAmapConfig;
-      bindExportModal();
-      if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').onclick = () => openSetupOverlay();
-      if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
-      if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
-      if (el('newRouteBtn')) el('newRouteBtn').onclick = createRouteFromPrompt;
-      bindEmptyRouteMenu();
-      el('exportBtn').onclick = openExportModal;
-      bindRouteLibraryControls();
-      el('routeSelect').onchange = selectRouteFromDropdown;
-      el('routeViewSelect').onchange = () => {
-        currentRouteView = el('routeViewSelect').value;
-        renderDays();
-        renderMarkersAndSegments(true);
-      };
-      el('daysList').onclick = (event) => {
-        const button = event.target.closest('[data-add-day-after]');
-        if (!button) return;
-        addDayAfter(Number(button.dataset.addDayAfter));
-      };
       if (!localService.capabilities?.serverExport) {
         el('exportBtn').textContent = '下载';
         el('exportBtn').title = '下载当前路线 JSON';
@@ -1466,7 +1463,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         el('exportBtn').title = '后台生成路线文件、手册、PDF 和 MP4';
       }
       if (localService.capabilities?.editableMapConfig === false) {
-        if (el('configBtn')) el('configBtn').hidden = true;
         if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').hidden = true;
         if (el('mapPlaceholder')) {
           const title = el('mapPlaceholder').querySelector('strong');

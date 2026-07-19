@@ -258,12 +258,55 @@ const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | nul
   );
 };
 
+type TransportMode = 'drive' | 'ride' | 'walk';
+
+const TransportIcon: React.FC<{mode: TransportMode; color: string}> = ({mode, color}) => {
+  if (mode === 'ride') {
+    return (
+      <svg width="62" height="42" viewBox="0 0 62 42" aria-label="自行车">
+        <title>自行车</title>
+        <circle cx="14" cy="31" r="9" fill="none" stroke="white" strokeWidth="3" />
+        <circle cx="48" cy="31" r="9" fill="none" stroke="white" strokeWidth="3" />
+        <path d="M14 31 25 16h12l11 15M25 16l7 15m-7-15h-7m19 0h7m-4-5h7" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="35" cy="7" r="4" fill="white" />
+        <path d="m35 12-7 7 8 5 7-9" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (mode === 'walk') {
+    return (
+      <svg width="48" height="48" viewBox="0 0 48 48" aria-label="步行">
+        <title>步行</title>
+        <circle cx="28" cy="8" r="5" fill="white" />
+        <path d="m25 15-6 11 7 4 3 11m-4-15 8 5 6-7m-13-9 8 4" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="m26 41-6 3m15-4 7 3" stroke={color} strokeWidth="4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="62" height="42" viewBox="0 0 62 42" aria-label="汽车">
+      <title>汽车</title>
+      <path d="M10 25 15 13c1-3 3-4 6-4h20c3 0 5 1 6 4l5 12v7H10z" fill={color} stroke="white" strokeWidth="2.5" strokeLinejoin="round" />
+      <path d="m18 13-3 9h32l-3-9z" fill="#10213a" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+      <circle cx="19" cy="32" r="5" fill="#101820" stroke="white" strokeWidth="2" />
+      <circle cx="45" cy="32" r="5" fill="#101820" stroke="white" strokeWidth="2" />
+      <path d="M13 25h36" stroke="white" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+};
+
 const Runner: React.FC<{day: VideoDay; progress: number; camera: ReturnType<typeof computeCamera>}> = ({day, progress, camera}) => {
   const coord = samplePath(dayPath(day), progress, camera.project);
   const {x, y} = camera.project(coord);
+  const thresholds = cumulativePointProgress(day, camera.project);
+  const nextPointIndex = thresholds.findIndex((threshold, index) => index > 0 && progress <= threshold);
+  const segmentIndex = nextPointIndex < 0 ? Math.max(0, day.segments.length - 1) : Math.max(0, nextPointIndex - 1);
+  const mode: TransportMode = day.segments[segmentIndex]?.mode || day.points[segmentIndex + 1]?.transportMode || 'drive';
   return (
     <div style={{position: 'absolute', left: x, top: y, transform: 'translate(-50%, -50%)', zIndex: 55}}>
-      <div style={{width: 34, height: 34, borderRadius: 999, background: 'white', border: `9px solid ${day.color}`, boxShadow: `0 0 0 10px rgba(255,255,255,.20), 0 0 34px ${day.color}, 0 12px 25px rgba(0,0,0,.45)`}} />
+      <div style={{display: 'grid', placeItems: 'center', minWidth: 70, minHeight: 54, padding: '4px 7px', borderRadius: 16, background: 'rgba(7,17,31,.88)', border: `2px solid ${day.color}`, boxShadow: `0 0 0 7px rgba(255,255,255,.14), 0 0 34px ${day.color}, 0 12px 25px rgba(0,0,0,.45)`}}>
+        <TransportIcon mode={mode} color={day.color} />
+      </div>
     </div>
   );
 };
@@ -413,6 +456,5 @@ export const AmapRouteVideo: React.FC<Props> = ({data, amapKey, amapSecurityCode
     </AbsoluteFill>
   );
 };
-
 
 

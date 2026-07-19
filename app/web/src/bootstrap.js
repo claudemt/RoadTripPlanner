@@ -62,6 +62,7 @@ await import('./utils/format.js');
 await import('./utils/html.js');
 await import('./state/routeBookStore.js');
 await import('./ui/feedback.js');
+await import('./ui/dialogController.js');
 await import('./ui/routeRenderer.js');
 await import('./features/scenic/scenicController.js');
 await import('./features/export/exportTaskController.js');

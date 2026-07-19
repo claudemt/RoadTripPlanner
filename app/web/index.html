@@ -293,6 +293,16 @@
     </div>
   </div>
 
+  <div class="modal" id="routePreviewModal">
+    <div class="modal-card route-preview-card">
+      <div class="modal-head">
+        <strong id="routePreviewTitle">路线预览</strong>
+        <button class="small" type="button" data-dialog-close="routePreviewModal">关闭</button>
+      </div>
+      <div class="modal-body route-preview-body" id="routePreviewBody"></div>
+    </div>
+  </div>
+
   <div class="modal" id="sceneDiffModal">
     <div class="modal-card route-library-card">
       <div class="modal-head">
@@ -333,32 +343,6 @@
           <button id="setupTestBtn">测试连接</button>
         </div>
         <div class="hint" id="setupStatus">配置保存在服务器本机，仅管理员可维护。</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="configModal">
-    <div class="modal-card">
-      <div class="modal-head">
-        <strong>高德地图配置</strong>
-        <button class="small" id="configCloseBtn">关闭</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-grid">
-          <div>
-            <label>Web JS API Key</label>
-            <input id="amapKeyInput" placeholder="高德 Web 端 Key" />
-          </div>
-          <div>
-            <label>安全密钥 securityJsCode</label>
-            <input id="amapSecurityInput" placeholder="安全密钥" />
-          </div>
-        </div>
-        <div class="toolbar" style="padding:8px 0 0;border:0;background:transparent">
-          <button class="primary" id="saveConfigBtn">保存并刷新</button>
-          <button id="testConfigBtn">测试连接</button>
-        </div>
-        <div class="hint" id="configStatus">保存后页面会重新加载高德地图。配置写入服务器本机。</div>
       </div>
     </div>
   </div>
