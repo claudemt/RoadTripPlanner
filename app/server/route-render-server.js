@@ -702,21 +702,42 @@ const normalizeCloudRouteId = (routeData) => {
   return `${name}-${Date.now().toString(36)}`.slice(0, 120);
 };
 
-const toCloudRouteItem = (item) => ({
-  name: item.name,
-  safeName: item.id,
-  fileBase: item.id,
-  archivedAt: item.created_at,
-  updatedAt: item.updated_at,
-  mapLayer: item.map_layer,
-  routeJson: true,
-  videoJson: false,
-  mp4: false,
-  manualMd: false,
-  manualPdf: false,
-  cloud: true,
-  routeData: item.route_data,
+const getRouteAssetUrl = (routeData, key) => {
+  const assets = routeData?._assets || routeData?.assets || {};
+  const value = assets[key] || assets[`${key}Url`];
+  if (typeof value === 'string') return /^https?:\/\//i.test(value) ? value : null;
+  if (value && typeof value.url === 'string') return /^https?:\/\//i.test(value.url) ? value.url : null;
+  return null;
+};
+
+const getRouteAssetUrls = (routeData) => ({
+  routeJson: getRouteAssetUrl(routeData, 'routeJson'),
+  videoJson: getRouteAssetUrl(routeData, 'videoData') || getRouteAssetUrl(routeData, 'videoJson'),
+  mp4: getRouteAssetUrl(routeData, 'mp4'),
+  manualMd: getRouteAssetUrl(routeData, 'manualMd'),
+  manualPdf: getRouteAssetUrl(routeData, 'manualPdf'),
+  mapImage: getRouteAssetUrl(routeData, 'mapImage'),
 });
+
+const toCloudRouteItem = (item) => {
+  const assetUrls = getRouteAssetUrls(item.route_data);
+  return {
+    name: item.name,
+    safeName: item.id,
+    fileBase: item.id,
+    archivedAt: item.created_at,
+    updatedAt: item.updated_at,
+    mapLayer: item.map_layer,
+    routeJson: true,
+    videoJson: Boolean(assetUrls.videoJson),
+    mp4: Boolean(assetUrls.mp4),
+    manualMd: Boolean(assetUrls.manualMd),
+    manualPdf: Boolean(assetUrls.manualPdf),
+    assetUrls,
+    cloud: true,
+    routeData: item.route_data,
+  };
+};
 
 const listCloudRoutes = async (identity) => {
   const supabase = getSupabaseClient();
@@ -1019,26 +1040,30 @@ const listPublishedRoutes = async () => {
     .select('id,name,route_data,map_layer,published_by_email,source_route_id,source_owner_email,published_at,updated_at')
     .order('published_at', {ascending: false});
   if (error) throw error;
-  return (data || []).map((item) => ({
-    id: item.id,
-    name: item.name,
-    safeName: item.id,
-    fileBase: item.id,
-    archivedAt: item.published_at,
-    updatedAt: item.updated_at,
-    mapLayer: item.map_layer,
-    routeJson: false,
-    videoJson: false,
-    mp4: false,
-    manualMd: false,
-    manualPdf: false,
-    cloud: true,
-    published: true,
-    publishedByEmail: item.published_by_email,
-    sourceRouteId: item.source_route_id,
-    sourceOwnerEmail: item.source_owner_email,
-    routeData: item.route_data,
-  }));
+  return (data || []).map((item) => {
+    const assetUrls = getRouteAssetUrls(item.route_data);
+    return {
+      id: item.id,
+      name: item.name,
+      safeName: item.id,
+      fileBase: item.id,
+      archivedAt: item.published_at,
+      updatedAt: item.updated_at,
+      mapLayer: item.map_layer,
+      routeJson: true,
+      videoJson: Boolean(assetUrls.videoJson),
+      mp4: Boolean(assetUrls.mp4),
+      manualMd: Boolean(assetUrls.manualMd),
+      manualPdf: Boolean(assetUrls.manualPdf),
+      assetUrls,
+      cloud: true,
+      published: true,
+      publishedByEmail: item.published_by_email,
+      sourceRouteId: item.source_route_id,
+      sourceOwnerEmail: item.source_owner_email,
+      routeData: item.route_data,
+    };
+  });
 };
 
 const publishCloudRoute = async (payload, identity) => {

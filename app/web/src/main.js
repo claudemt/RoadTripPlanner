@@ -356,9 +356,11 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (!archived) return '';
       const base = localService.routeAssetBase(archived);
       const version = encodeURIComponent(archived.updatedAt || archived.archivedAt || Date.now());
+      const manualPdfUrl = archived.assetUrls?.manualPdf || `${base}.travel.pdf?v=${version}`;
+      const mp4Url = archived.assetUrls?.mp4 || `${base}.mp4?v=${version}`;
       return [
-        archived.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.travel.pdf?v=${version}`)}', '_blank')">PDF</button>` : '',
-        archived.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.mp4?v=${version}`)}', '_blank')">MP4</button>` : '',
+        archived.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(manualPdfUrl)}', '_blank')">PDF</button>` : '',
+        archived.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(mp4Url)}', '_blank')">MP4</button>` : '',
       ].join('');
     }
 

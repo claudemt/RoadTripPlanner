@@ -12,7 +12,6 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "local": "node server/route-render-server.js",
-    "sync-scenes": "node scripts/sync-scenes-to-supabase.js",
     "studio": "npm --workspace video run studio",
     "typecheck": "npm --workspace video run typecheck"
   },
