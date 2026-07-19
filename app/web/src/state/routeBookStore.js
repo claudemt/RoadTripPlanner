@@ -5,11 +5,14 @@
         const routes = input.routes.map(normalizeRoute).filter(Boolean);
         return {
           activeRouteId: routes.some((route) => route.id === input.activeRouteId) ? input.activeRouteId : routes[0]?.id,
-          routes: routes.length ? routes : [normalizeRoute(structuredClone(defaultRoute))]
+          routes
         };
       }
-      const route = normalizeRoute(input && input.days ? input : structuredClone(defaultRoute));
-      return {activeRouteId: route.id, routes: [route]};
+      if (input && input.days) {
+        const route = normalizeRoute(input);
+        return {activeRouteId: route.id, routes: [route]};
+      }
+      return {activeRouteId: '', routes: []};
     }
 
     function load() {
@@ -17,10 +20,7 @@
         const stored = localStorage.getItem(storageKey);
         if (stored) return normalizeBook(JSON.parse(stored));
       } catch (_) {}
-      return normalizeBook({
-        activeRouteId: defaultRoute.id,
-        routes: [normalizeRoute(structuredClone(defaultRoute))]
-      });
+      return normalizeBook({activeRouteId: '', routes: []});
     }
 
     function save(book) {

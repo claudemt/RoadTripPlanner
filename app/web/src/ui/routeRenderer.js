@@ -22,6 +22,15 @@
     }
 
     function renderRouteSelect({routeBook, route, archivedRoutes}) {
+      const emptyButton = el('emptyRouteCreateBtn');
+      const hasRoutes = Boolean(routeBook.routes?.length);
+      if (emptyButton) emptyButton.hidden = hasRoutes;
+      if (el('routeSelect')) el('routeSelect').hidden = !hasRoutes;
+      if (el('routeViewSelect')) el('routeViewSelect').hidden = !hasRoutes;
+      if (!hasRoutes) {
+        el('routeSelect').innerHTML = '';
+        return;
+      }
       const localOptions = routeBook.routes
         .map((item) => `<option value="${escapeAttr(item.id)}">${escapeHtml(cleanRouteName(item.name) || item.id)}</option>`)
         .join('');
@@ -30,11 +39,17 @@
         .filter((item) => item.routeJson && !localNames.has(item.name))
         .map((item) => `<option value="archive:${escapeAttr(item.safeName)}">导出：${escapeHtml(cleanRouteName(item.name) || item.safeName)}</option>`)
         .join('');
-      el('routeSelect').innerHTML = localOptions + (archivedOptions ? `<optgroup label="已导出路线">${archivedOptions}</optgroup>` : '');
-      el('routeSelect').value = route.id;
+      const publicOption = '<option value="__public_routes__">◇ 公共路线</option>';
+      el('routeSelect').innerHTML = localOptions + (archivedOptions ? `<optgroup label="已导出路线">${archivedOptions}</optgroup>` : '') + `<optgroup label="路线库">${publicOption}</optgroup>`;
+      el('routeSelect').value = route?.id || routeBook.routes[0]?.id || '';
     }
 
     function renderDaySelect({route, currentRouteView}) {
+      if (!route) {
+        el('daySelect').innerHTML = '';
+        el('routeViewSelect').innerHTML = '';
+        return 'all';
+      }
       const selectedDay = el('daySelect').value || '0';
       el('daySelect').innerHTML = route.days
         .map((day, index) => `<option value="${index}">${escapeHtml(dayLabel(day, index))}</option>`)
@@ -51,6 +66,11 @@
     }
 
     function renderSummary({route, segmentResults}) {
+      if (!route) {
+        el('sumDays').textContent = '0天';
+        el('sumMetric').textContent = '0km/0min';
+        return;
+      }
       let distance = 0;
       let duration = 0;
       for (const dayResult of segmentResults) {
@@ -64,6 +84,10 @@
     }
 
     function renderDays({route, segmentResults, currentRouteView}) {
+      if (!route) {
+        el('daysList').innerHTML = '<div class="account-empty">还没有路线。点击“新建”或从“公共路线”导入一条开始。</div>';
+        return;
+      }
       const visibleDays = route.days
         .map((day, dayIndex) => ({day, dayIndex}))
         .filter(({dayIndex}) => currentRouteView === 'all' || Number(currentRouteView) === dayIndex);

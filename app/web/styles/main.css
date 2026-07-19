@@ -148,9 +148,10 @@
       display: block;
       width: 28px;
       height: 28px;
-      border-radius: 8px;
+      border: 2px solid #ec7a3c;
+      border-radius: 9px;
       background: #6a95eb;
-      box-shadow: 7px 7px 0 rgba(0,0,0,.14);
+      box-shadow: 6px 6px 0 rgba(0,0,0,.18);
     }
     .user-menu-icon::before,
     .user-menu-icon::after {
@@ -182,7 +183,7 @@
     }
     .top-toolbar {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 5px;
       padding: 6px 8px;
       background: #f2f5f2;
@@ -211,6 +212,12 @@
       border: 0;
       border-radius: 0;
       background: transparent;
+      box-shadow: none;
+    }
+    .route-combo button {
+      height: 30px;
+      border: 0;
+      border-radius: 0;
       box-shadow: none;
     }
     .route-combo select:focus { box-shadow: inset 0 0 0 2px rgba(198, 106, 45, .18); }
@@ -511,15 +518,18 @@
       border: 1px solid rgba(255, 255, 255, .26);
       border-radius: 50%;
       color: #fff;
-      background: #d45b32;
+      background: #e77a3f;
       font-size: 18px;
       font-weight: 700;
       text-transform: uppercase;
+      box-shadow: 11px 11px 0 rgba(0,0,0,.20);
     }
     .account-avatar .user-menu-icon {
-      width: 36px;
-      height: 36px;
+      width: 34px;
+      height: 34px;
       border-radius: 10px;
+      border-color: #294777;
+      box-shadow: none;
     }
     .account-identity strong {
       width: 100%;
@@ -668,6 +678,22 @@
     .admin-content-item {
       grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
     }
+    .diff-list {
+      display: grid;
+      gap: 4px;
+      margin-top: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .diff-line {
+      padding: 4px 6px;
+      border-radius: 5px;
+      background: #f4f6f4;
+    }
+    .diff-line.add { color: #236242; background: #e7f2ea; }
+    .diff-line.remove { color: #8b332c; background: #fae7e4; }
     .account-item:hover {
       background: #fff;
     }

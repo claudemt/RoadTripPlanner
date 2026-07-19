@@ -199,7 +199,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       bindEvents();
       renderAll(false);
       toast(localService.capabilities?.cloudRoutes ? '地图已就绪，正在同步你的路线…' : '地图已就绪，正在读取路线…');
-      const readyPoints = route.days.some((day) => getDayPoints(day).map((x) => x.point).filter(isPointReady).length >= 2);
+      const readyPoints = route?.days?.some((day) => getDayPoints(day).map((x) => x.point).filter(isPointReady).length >= 2);
       if (readyPoints) {
         try {
           renderAll(true);
@@ -220,6 +220,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').onclick = () => openSetupOverlay();
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
+      el('newRouteBtn').onclick = createRouteFromPrompt;
+      if (el('emptyRouteCreateBtn')) el('emptyRouteCreateBtn').onclick = createRouteFromPrompt;
       el('calcBtn').onclick = calculateRoute;
       el('exportBtn').onclick = openExportModal;
       bindRouteLibraryControls();
@@ -273,22 +275,13 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       document.querySelectorAll('[data-account-view]').forEach((button) => {
         button.onclick = () => setAccountView(button.dataset.accountView);
       });
-      if (el('accountCreateRouteBtn')) {
-        el('accountCreateRouteBtn').onclick = async () => {
-          const name = el('accountNewRouteName').value.trim();
-          const dayCount = Math.max(1, Math.min(30, Number(el('accountNewRouteDays').value || 1)));
-          if (await createRouteFromAccount({name, dayCount})) {
-            el('accountNewRouteName').value = '';
-            renderAccountRoutes();
-          }
-        };
-      }
       if (el('accountPublishSceneBtn')) el('accountPublishSceneBtn').onclick = publishSceneFromAccount;
       if (el('adminSaveConfigBtn')) {
         el('adminSaveConfigBtn').onclick = () => saveAmapConfigFromInputs('adminAmapKeyInput', 'adminAmapSecurityInput', 'adminConfigStatus');
       }
       if (el('adminRefreshBtn')) el('adminRefreshBtn').onclick = refreshAdminDashboard;
       if (el('accountLogoutBtn')) el('accountLogoutBtn').onclick = () => { location.href = '/logout'; };
+      if (el('sceneDiffCloseBtn')) el('sceneDiffCloseBtn').onclick = () => el('sceneDiffModal').classList.remove('open');
     }
 
     function openAccountCenter() {
@@ -324,8 +317,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         renderAccountRoutes();
       } else if (accountView === 'scenic') {
         await renderAccountScenes();
-      } else if (accountView === 'public') {
-        await renderAccountPublicRoutes();
       } else if (accountView === 'admin') {
         await refreshAdminDashboard();
       }
@@ -354,42 +345,21 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           <span class="account-item-time">${escapeHtml(routeTime(item.updatedAt || item.archivedAt))}</span>
           <div class="account-item-actions">
             <button class="small primary" onclick="accountOpenRoute('${escapeJsAttr(item.id)}')">打开</button>
-            <button class="small" onclick="accountRenameRoute('${escapeJsAttr(item.id)}')">改名</button>
-            ${localService.capabilities?.publishedRoutes ? `<button class="small" onclick="accountPublishRoute('${escapeJsAttr(item.id)}')">发布</button>` : ''}
-            <button class="small danger" onclick="accountDeleteRoute('${escapeJsAttr(item.id)}')">删除</button>
+            ${renderAccountAssetButtons(item)}
           </div>
         </div>
       `).join('');
     }
 
-    async function renderAccountPublicRoutes() {
-      const box = el('accountPublicRouteList');
-      if (!box) return;
-      try {
-        const {response, data} = await localService.listPublishedRoutes();
-        if (!response.ok || !data?.ok) throw new Error(data?.message || '无法读取公共路线');
-        const routes = data.routes || [];
-        el('accountPublicCount').textContent = String(routes.length);
-        if (!routes.length) {
-          box.innerHTML = '<div class="account-empty">还没有公共路线。</div>';
-          return;
-        }
-        box.innerHTML = routes.map((item) => `
-          <div class="account-item route-account-item">
-            <div class="account-item-main">
-              <strong>${escapeHtml(cleanRouteName(item.name) || '未命名路线')}</strong>
-              <span>发布者：${escapeHtml(item.publishedByEmail || '未知')}</span>
-            </div>
-            <span class="account-item-time">${escapeHtml(routeTime(item.archivedAt || item.updatedAt))}</span>
-            <div class="account-item-actions">
-              <button class="small primary" onclick="accountImportPublished('${escapeJsAttr(item.id)}')">导入</button>
-              ${runtime.isAdmin ? `<button class="small danger" onclick="accountDeletePublished('${escapeJsAttr(item.id)}')">删除</button>` : ''}
-            </div>
-          </div>
-        `).join('');
-      } catch (error) {
-        box.innerHTML = `<div class="account-empty">读取公共路线失败：${escapeHtml(error.message)}</div>`;
-      }
+    function renderAccountAssetButtons(item) {
+      const archived = archiveController.getRoutes().find((routeItem) => routeItem.safeName === item.id || routeItem.name === item.name);
+      if (!archived) return '';
+      const base = localService.routeAssetBase(archived);
+      const version = encodeURIComponent(archived.updatedAt || archived.archivedAt || Date.now());
+      return [
+        archived.manualPdf ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.travel.pdf?v=${version}`)}', '_blank')">PDF</button>` : '',
+        archived.mp4 ? `<button class="small" onclick="window.open('${escapeJsAttr(`${base}.mp4?v=${version}`)}', '_blank')">MP4</button>` : '',
+      ].join('');
     }
 
     async function renderAccountScenes() {
@@ -412,6 +382,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
             </div>
             <div class="account-item-actions">
               <button class="small primary" onclick="showSpotInfo('${escapeJsAttr(item.name || item.title)}')">查看</button>
+              <button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">Diff</button>
               ${runtime.isAdmin ? `<button class="small danger" onclick="accountDeleteScene('${escapeJsAttr(item.name || item.title)}')">删除</button>` : ''}
             </div>
           </div>
@@ -470,7 +441,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         const scenes = (data.scenes || []).map((item) => `
           <div class="account-item admin-content-item">
             <div class="account-item-main"><strong>景点：${escapeHtml(item.title || item.name)}</strong><span>${escapeHtml(item.updated_by_email || '未知')}</span></div>
-            <div class="account-item-actions"><button class="small danger" onclick="accountDeleteScene('${escapeJsAttr(item.name || item.title)}')">删除</button></div>
+            <div class="account-item-actions"><button class="small" onclick="accountShowSceneDiff('${escapeJsAttr(item.name || item.title)}')">Diff</button><button class="small danger" onclick="accountDeleteScene('${escapeJsAttr(item.name || item.title)}')">删除</button></div>
           </div>
         `).join('');
         contentBox.innerHTML = routes + scenes || '<div class="account-empty">还没有公共内容。</div>';
@@ -511,6 +482,11 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function selectRouteFromDropdown() {
       const value = el('routeSelect').value;
+      if (value === '__public_routes__') {
+        openRouteLibrary();
+        renderRouteSelect();
+        return;
+      }
       if (value.startsWith('archive:')) return loadArchivedRoute(value.slice(8));
       routeBook.activeRouteId = value;
       route = routeStore.getActive(routeBook);
@@ -575,7 +551,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function openConfigModal() {
-      if (localService.capabilities?.editableMapConfig === false) {
+      if (localService.capabilities?.editableMapConfig === false || runtime.isAdmin) {
         return toast('网站地图配置由管理员统一维护。');
       }
       el('amapKeyInput').value = window.AMAP_PLANNER_CONFIG?.key || '';
@@ -685,6 +661,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function saveRoute(showToast = true) {
+      if (!route) return;
       try {
         routeBook.activeRouteId = route.id;
         routeStore.save(routeBook);
@@ -723,7 +700,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     async function createRouteFromAccount({name, dayCount}) {
-      const cleanName = cleanRouteName(name) || '未命名线路';
+      const cleanName = cleanRouteName(name) || '未命名路线';
       const next = normalizeRoute(createBlankRoute(cleanName, dayCount));
       const previousRoute = route;
       const previousActiveId = routeBook.activeRouteId;
@@ -748,6 +725,15 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
     }
 
+    async function createRouteFromPrompt() {
+      const name = prompt('路线名称', '未命名路线');
+      if (name === null) return;
+      const daysText = prompt('天数', '1');
+      if (daysText === null) return;
+      const dayCount = Math.max(1, Math.min(30, Number(daysText || 1)));
+      await createRouteFromAccount({name, dayCount});
+    }
+
     async function renameRouteById(routeId, name) {
       const target = routeBook.routes.find((item) => item.id === routeId);
       if (!target) return false;
@@ -755,17 +741,17 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (!nextName) return toast('路线名称不能为空。'), false;
       const previousName = target.name;
       target.name = nextName;
-      if (route.id === routeId) route.name = nextName;
+      if (route?.id === routeId) route.name = nextName;
       try {
         const {response, data} = await saveRouteNow(target);
         if (!response.ok || !data?.ok) throw new Error(data?.message || '保存失败');
         renderRouteSelect();
-        if (route.id === routeId) syncEditor();
+        if (route?.id === routeId) syncEditor();
         toast('路线名称已更新。');
         return true;
       } catch (error) {
         target.name = previousName;
-        if (route.id === routeId) route.name = previousName;
+        if (route?.id === routeId) route.name = previousName;
         renderRouteSelect();
         toast('修改路线名称失败：' + error.message);
         return false;
@@ -773,10 +759,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     async function deleteRouteById(routeId) {
-      if (routeBook.routes.length <= 1) {
-        toast('至少保留一条路线。');
-        return false;
-      }
       const index = routeBook.routes.findIndex((item) => item.id === routeId);
       if (index < 0) return false;
       const removed = routeBook.routes[index];
@@ -788,9 +770,9 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         }
       }
       routeBook.routes.splice(index, 1);
-      if (route.id === routeId) {
-        routeBook.activeRouteId = routeBook.routes[0].id;
-        route = routeStore.getActive(routeBook);
+      if (route?.id === routeId) {
+        routeBook.activeRouteId = routeBook.routes[0]?.id || '';
+        route = routeStore.getActive(routeBook) || null;
         currentRouteView = 'all';
         segmentResults = [];
         routeStore.save(routeBook);
@@ -823,11 +805,12 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (!editor || activeTabId !== 'codePanel') return;
       if (!force && !jsonEditorDirty) return;
       if (!force && document.activeElement === editor) return;
-      editor.value = JSON.stringify(getEditableRoute(route), null, 2);
+      editor.value = route ? JSON.stringify(getEditableRoute(route), null, 2) : '';
       jsonEditorDirty = false;
     }
 
     function getEditableRoute(input) {
+      if (!input && !route) return null;
       const next = normalizeRoute(structuredClone(input || route));
       return {
         id: next.id,
@@ -860,7 +843,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function renderAll(fit = true) {
-      route = normalizeRoute(route);
+      route = route ? normalizeRoute(route) : routeStore.getActive(routeBook) || null;
       renderRouteSelect();
       renderDaySelect();
       renderSummary();
@@ -890,6 +873,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function renderMarkersAndSegments(fit = true) {
+      if (!route) {
+        routeMap.clear();
+        return;
+      }
       routeMap.render({
         route,
         segmentResults,
@@ -904,6 +891,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     async function calculateRoute() {
+      if (!route) return toast('请先新建路线，或从公共路线导入。');
       if (!routeMap.isReady()) {
         openSetupOverlay('请先配置并加载高德地图，再计算路线。');
         return toast('请先完成高德配置。');
@@ -1066,7 +1054,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     window.accountPublishRoute = async function(routeId) {
       await archiveController.publishRouteById(routeId);
-      await renderAccountPublicRoutes();
+      await refreshAdminDashboard();
     };
 
     window.accountImportPublished = async function(routeId) {
@@ -1079,7 +1067,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       const {response, data} = await localService.deletePublishedRoute(routeId);
       if (!response.ok || !data?.ok) return toast('删除公共路线失败：' + (data?.message || '请重试'));
       toast('公共路线已删除。');
-      await renderAccountPublicRoutes();
       await refreshAdminDashboard();
     };
 
@@ -1090,6 +1077,31 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       toast('景点介绍已删除。');
       await renderAccountScenes();
       await refreshAdminDashboard();
+    };
+
+    window.accountShowSceneDiff = async function(name) {
+      try {
+        const {response, data} = await localService.listScenicRevisions(name);
+        if (!response.ok || !data?.ok) throw new Error(data?.message || '无法读取编辑记录');
+        el('sceneDiffTitle').textContent = `${name} · 编辑记录`;
+        const revisions = data.revisions || [];
+        el('sceneDiffList').innerHTML = revisions.length
+          ? revisions.map((item) => `
+            <div class="archive-item">
+              <div class="archive-item-head">
+                <span>${escapeHtml(routeTime(item.createdAt))}</span>
+                <span class="cloud-save-state">${escapeHtml(item.editedByEmail || '未知')}</span>
+              </div>
+              <div class="diff-list">
+                ${(item.diff || []).map((line) => `<div class="diff-line ${escapeAttr(line.type === 'add' ? 'add' : line.type === 'remove' ? 'remove' : '')}">${escapeHtml(line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  ')}${escapeHtml(line.text || '')}</div>`).join('')}
+              </div>
+            </div>
+          `).join('')
+          : '<div class="account-empty">还没有编辑记录。</div>';
+        el('sceneDiffModal').classList.add('open');
+      } catch (error) {
+        toast('读取编辑记录失败：' + error.message);
+      }
     };
 
     async function loadConfigFromServer() {
@@ -1229,6 +1241,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').onclick = () => openSetupOverlay();
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
+      if (el('newRouteBtn')) el('newRouteBtn').onclick = createRouteFromPrompt;
+      if (el('emptyRouteCreateBtn')) el('emptyRouteCreateBtn').onclick = createRouteFromPrompt;
       el('exportBtn').onclick = openExportModal;
       bindRouteLibraryControls();
       el('routeSelect').onchange = selectRouteFromDropdown;

@@ -37,6 +37,7 @@ const SUPABASE_TABLES = {
   scenes: String(process.env.ROADTRIP_SCENES_TABLE || 'roadtrip_scenes').trim(),
   settings: String(process.env.ROADTRIP_SETTINGS_TABLE || 'roadtrip_app_settings').trim(),
   publishedRoutes: String(process.env.ROADTRIP_PUBLISHED_ROUTES_TABLE || 'roadtrip_published_routes').trim(),
+  sceneRevisions: String(process.env.ROADTRIP_SCENE_REVISIONS_TABLE || 'roadtrip_scene_revisions').trim(),
 };
 const USER_EMAIL_HEADER_CANDIDATES = [USER_EMAIL_HEADER];
 const MAX_BODY = 220 * 1024 * 1024;
@@ -821,6 +822,50 @@ const uploadCloudSceneImages = async (supabase, normalizedName, images) => {
   return urls;
 };
 
+const buildTextDiff = (before, after) => {
+  const oldLines = String(before || '').split(/\r?\n/);
+  const newLines = String(after || '').split(/\r?\n/);
+  const max = Math.max(oldLines.length, newLines.length);
+  const diff = [];
+  for (let index = 0; index < max; index += 1) {
+    const oldLine = oldLines[index] ?? '';
+    const newLine = newLines[index] ?? '';
+    if (oldLine === newLine) {
+      if (oldLine) diff.push({type: 'same', text: oldLine});
+      continue;
+    }
+    if (oldLine) diff.push({type: 'remove', text: oldLine});
+    if (newLine) diff.push({type: 'add', text: newLine});
+  }
+  return diff;
+};
+
+const saveSceneRevision = async (supabase, existing, next, identity) => {
+  const beforeDescription = String(existing?.description || '');
+  const afterDescription = String(next.description || '');
+  const beforeImages = Array.isArray(existing?.images) ? existing.images : [];
+  const afterImages = Array.isArray(next.images) ? next.images : [];
+  if (
+    beforeDescription === afterDescription &&
+    JSON.stringify(beforeImages) === JSON.stringify(afterImages)
+  ) return;
+  const {error} = await supabase
+    .from(SUPABASE_TABLES.sceneRevisions)
+    .insert({
+      scene_id: existing?.id || next.id || null,
+      normalized_name: next.normalized_name,
+      name: next.name,
+      title: next.title,
+      edited_by_email: identity.email,
+      description_before: beforeDescription,
+      description_after: afterDescription,
+      images_before: beforeImages,
+      images_after: afterImages,
+      diff: buildTextDiff(beforeDescription, afterDescription),
+    });
+  if (error) throw error;
+};
+
 const saveCloudScenic = async (payload, identity) => {
   const supabase = requireSupabaseClient();
   if (!identity?.email) throw new Error('缺少用户邮箱，无法保存景点。');
@@ -847,6 +892,7 @@ const saveCloudScenic = async (payload, identity) => {
     updated_by_email: identity.email,
     updated_at: new Date().toISOString(),
   };
+  await saveSceneRevision(supabase, existing, row, identity);
   const {data, error} = await supabase
     .from(SUPABASE_TABLES.scenes)
     .upsert(row, {onConflict: 'normalized_name'})
@@ -854,6 +900,32 @@ const saveCloudScenic = async (payload, identity) => {
     .single();
   if (error) throw error;
   return {ok: true, folderName: normalized, spot: toCloudScene(data)};
+};
+
+const listCloudSceneRevisions = async (name) => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return null;
+  const normalized = normalizeSceneName(name);
+  if (!normalized) throw new Error('景点名称不能为空。');
+  const {data, error} = await supabase
+    .from(SUPABASE_TABLES.sceneRevisions)
+    .select('id,name,title,edited_by_email,description_before,description_after,images_before,images_after,diff,created_at')
+    .eq('normalized_name', normalized)
+    .order('created_at', {ascending: false})
+    .limit(30);
+  if (error) throw error;
+  return (data || []).map((item) => ({
+    id: item.id,
+    name: item.name,
+    title: item.title,
+    editedByEmail: item.edited_by_email,
+    descriptionBefore: item.description_before || '',
+    descriptionAfter: item.description_after || '',
+    imagesBefore: item.images_before || [],
+    imagesAfter: item.images_after || [],
+    diff: item.diff || [],
+    createdAt: item.created_at,
+  }));
 };
 
 const listCloudScenes = async () => {
@@ -1836,6 +1908,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/scenes') {
       const scenes = await listCloudScenes();
       return send(res, 200, {ok: true, scenes: scenes || []});
+    }
+    if (req.method === 'GET' && url.pathname === '/api/scenic-revisions') {
+      const revisions = await listCloudSceneRevisions(url.searchParams.get('name') || '');
+      return send(res, 200, {ok: true, revisions: revisions || []});
     }
     if (req.method === 'POST' && url.pathname === '/api/scenic') {
       const payload = await readBody(req);

@@ -23,6 +23,7 @@
       </div>
 
       <div class="toolbar top-toolbar">
+        <button class="primary" id="newRouteBtn">新建</button>
         <button class="primary" id="calcBtn">刷新</button>
         <button class="primary" id="exportBtn" title="网站版下载 JSON；本地版可导出文档和视频">导出</button>
         <button id="mapLayerBtn" title="地图类型：标准/卫星/混合">类型</button>
@@ -36,6 +37,7 @@
       <div class="route-strip">
         <div class="route-combo">
           <select id="routeSelect" title="选择一条路线"></select>
+          <button id="emptyRouteCreateBtn" class="primary" hidden>新建路线</button>
           <select id="routeViewSelect" title="查看范围"></select>
         </div>
       </div>
@@ -107,8 +109,7 @@
         <nav>
           <button class="active" type="button" data-account-view="routes"><span class="account-nav-index">01</span><span>我的路线</span><small id="accountRouteCount">0</small></button>
           <button type="button" data-account-view="scenic"><span class="account-nav-index">02</span><span>景点介绍</span><small id="accountSceneCount">0</small></button>
-          <button type="button" data-account-view="public"><span class="account-nav-index">03</span><span>公共路线</span><small id="accountPublicCount">0</small></button>
-          <button type="button" data-account-view="admin" id="accountAdminNav" hidden><span class="account-nav-index">04</span><span>管理</span><small>admin</small></button>
+          <button type="button" data-account-view="admin" id="accountAdminNav" hidden><span class="account-nav-index">03</span><span>管理</span><small>admin</small></button>
           <button type="button" data-account-view="logout"><span class="account-nav-index">↗</span><span>退出</span><small></small></button>
         </nav>
       </aside>
@@ -117,18 +118,7 @@
           <div class="account-workspace-head">
             <p>ROUTES</p>
             <h2>我的路线</h2>
-            <span>查看、打开、新建、改名、删除或发布自己的路线。</span>
-          </div>
-          <div class="account-route-form">
-            <div class="account-route-form-field">
-              <label>路线名称</label>
-              <input id="accountNewRouteName" placeholder="例如：甘南小环线" />
-            </div>
-            <div class="account-route-form-field">
-              <label>天数</label>
-              <input id="accountNewRouteDays" type="number" min="1" max="30" value="1" />
-            </div>
-            <button class="primary" id="accountCreateRouteBtn" type="button">新建路线</button>
+            <span>查看自己的路线和已经生成的产品文件。</span>
           </div>
           <div class="account-list" id="accountRouteList"></div>
         </section>
@@ -153,15 +143,6 @@
           </div>
           <div class="hint" id="accountSceneStatus">公共景点介绍由站点用户共同维护。</div>
           <div class="account-list" id="accountSceneList"></div>
-        </section>
-
-        <section class="account-view" id="accountViewPublic">
-          <div class="account-workspace-head">
-            <p>LIBRARY</p>
-            <h2>公共路线</h2>
-            <span>导入别人发布的路线，系统会复制到你的个人空间。</span>
-          </div>
-          <div class="account-list" id="accountPublicRouteList"></div>
         </section>
 
         <section class="account-view" id="accountViewAdmin">
@@ -278,6 +259,18 @@
     </div>
   </div>
 
+  <div class="modal" id="sceneDiffModal">
+    <div class="modal-card route-library-card">
+      <div class="modal-head">
+        <strong id="sceneDiffTitle">编辑记录</strong>
+        <button class="small" id="sceneDiffCloseBtn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="account-list compact" id="sceneDiffList"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="setup-overlay" id="setupOverlay">
     <div class="setup-card">
       <header>
@@ -305,7 +298,7 @@
           <button class="primary" id="setupSaveBtn">保存并加载地图</button>
           <button id="setupTestBtn">测试连接</button>
         </div>
-        <div class="hint" id="setupStatus">配置保存在服务器本机，仅通过 Caddy 代理访问。</div>
+        <div class="hint" id="setupStatus">配置保存在服务器本机，仅管理员可维护。</div>
       </div>
     </div>
   </div>

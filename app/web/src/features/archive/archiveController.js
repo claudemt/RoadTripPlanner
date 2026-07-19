@@ -168,7 +168,7 @@
         renderArchiveList();
         setStatus('路线库已同步。');
       } catch (error) {
-        const suffix = '。请确认 Caddy 已传入用户邮箱，并且本机服务正在运行。';
+        const suffix = '。请确认已登录，并且本机服务正在运行。';
         if (box) box.innerHTML = `<div class="hint">读取路线失败：${escapeHtml(error.message)}${suffix}</div>`;
       }
     }

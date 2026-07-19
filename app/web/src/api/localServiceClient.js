@@ -72,6 +72,9 @@
       listScenes() {
         return fetchJson(apiUrl('/api/scenes'));
       },
+      listScenicRevisions(name) {
+        return fetchJson(apiUrl(`/api/scenic-revisions?name=${encodeURIComponent(name || '')}`));
+      },
       saveScenic(payload) {
         return postJson('/api/scenic', payload);
       },
