@@ -72,6 +72,16 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     const showSpotInfo = scenicController.showSpotInfo;
     window.showSpotInfo = showSpotInfo;
     window.openLightbox = scenicController.openLightbox;
+    const communityController = window.CommunityController.create({
+      el,
+      localService,
+      runtime,
+      dialogs,
+      escapeHtml,
+      escapeAttr,
+      toast,
+      openLightbox: scenicController.openLightbox
+    });
     const exportTasks = window.ExportTaskController.create({el, localService, toast});
     const isExportActive = exportTasks.isActive;
     const fetchExportTaskState = exportTasks.fetchState;
@@ -107,7 +117,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     let segmentResults = [];
     let currentRouteView = 'all';
     let cloudSaveTimer = null;
-    let accountView = 'routes';
+    let accountView = 'profile';
     let accountRouteMode = 'mine';
     let accountSceneMode = 'mine';
     let accountUserScenes = [];
@@ -138,7 +148,11 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       renderAll,
       calculateRoute,
       isMapReady: routeMap.isReady,
-      getEditableRoute
+      getEditableRoute,
+      onImported: () => {
+        closeRouteLibrary();
+        closeAccountCenter();
+      }
     });
     const refreshArchivedRoutes = archiveController.refresh;
     window.loadArchivedRoute = archiveController.load;
@@ -264,6 +278,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function bindAccountControls() {
+      communityController.bind();
       if (el('userMenuBtn')) el('userMenuBtn').onclick = openAccountCenter;
       if (el('accountCenterCloseBtn')) el('accountCenterCloseBtn').onclick = closeAccountCenter;
       document.querySelectorAll('[data-account-view]').forEach((button) => {
@@ -298,16 +313,18 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function closeAccountCenter() {
       el('accountCenter').classList.remove('open');
+      communityController.stopPolling();
     }
 
     function setAccountView(view) {
-      accountView = view === 'admin' && !runtime.isAdmin ? 'routes' : (view || 'routes');
+      accountView = view === 'admin' && !runtime.isAdmin ? 'profile' : (view || 'profile');
       document.querySelectorAll('[data-account-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.accountView === accountView);
       });
       document.querySelectorAll('.account-view').forEach((panel) => {
         panel.classList.toggle('active', panel.id === `accountView${accountView[0].toUpperCase()}${accountView.slice(1)}`);
       });
+      communityController.activate(accountView);
       refreshAccountCenter();
     }
 
@@ -436,7 +453,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function renderAccountAssetButtons(item) {
       const archived = archiveController.getRoutes().find((routeItem) => routeItem.safeName === item.id || routeItem.name === item.name);
-      const assetUrls = archived?.assetUrls || getRouteEmbeddedAssetUrls(item);
+      const assetUrls = archived?.assetUrls || item.assetUrls || {};
       const base = archived ? localService.routeAssetBase(archived) : '';
       const version = encodeURIComponent(archived?.updatedAt || archived?.archivedAt || Date.now());
       const zipUrl = assetUrls.productZip || localService.routeProductZipUrl?.(item.id);
@@ -447,20 +464,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         (archived?.manualPdf || assetUrls.manualPdf) ? `<button class="small" onclick="window.open('${escapeJsAttr(manualPdfUrl)}', '_blank')">PDF</button>` : '',
         (archived?.mp4 || assetUrls.mp4) ? `<button class="small" onclick="window.open('${escapeJsAttr(mp4Url)}', '_blank')">MP4</button>` : '',
       ].join('');
-    }
-
-    function getRouteEmbeddedAssetUrls(item) {
-      const assets = item?._assets || item?.assets || {};
-      const pick = (key) => {
-        const value = assets[key] || assets[`${key}Url`];
-        if (typeof value === 'string') return value;
-        return value?.url || '';
-      };
-      return {
-        productZip: pick('productZip'),
-        manualPdf: pick('manualPdf'),
-        mp4: pick('mp4'),
-      };
     }
 
     async function renderAccountScenes() {
@@ -694,7 +697,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         ? '地图配置由站点管理员统一维护。'
         : localService.capabilities?.mode === 'cloud'
           ? '配置会写入站点设置，保存后所有用户刷新即可使用。'
-          : '配置会写入浏览器，并同步到 data/config/local.env。');
+          : '配置会写入浏览器，并同步到 config/local.env。');
       el('setupOverlay').classList.add('open');
       el('mapPlaceholder')?.classList.add('show');
     }
@@ -1160,8 +1163,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     window.accountImportPublished = async function(routeId) {
       await archiveController.importPublished(routeId);
-      setAccountRouteMode('mine');
-      await renderAccountRoutes();
     };
 
     window.accountPreviewUserScene = function(sceneId) {
@@ -1411,6 +1412,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     async function startApp() {
       bootstrapUiWithoutMap();
+      communityController.refreshSelfProfile().catch(() => {});
       setLoading('地图加载中', {percent: 10});
 
       if (location.protocol === 'file:') {

@@ -16,7 +16,7 @@
         </div>
         <div class="account">
           <button id="userMenuBtn" class="user-profile-button" type="button" title="用户中心">
-            <span class="user-menu-icon" aria-hidden="true"></span>
+            <span class="profile-avatar header-profile-avatar" id="headerProfileAvatar"><span class="user-menu-icon" aria-hidden="true"></span></span>
             <span id="accountEmail" class="account-email">正在识别用户</span>
           </button>
         </div>
@@ -91,19 +91,50 @@
     <div class="account-page-layout">
       <aside class="account-navigation">
         <div class="account-identity">
-          <span class="account-avatar"><span class="user-menu-icon" aria-hidden="true"></span></span>
-          <strong id="accountIdentityEmail">未识别用户</strong>
-          <span id="accountIdentityRole">用户</span>
+          <span class="account-avatar profile-avatar" id="accountProfileAvatar"><span class="user-menu-icon" aria-hidden="true"></span></span>
+          <strong id="accountIdentityNickname">旅人</strong>
+          <span id="accountIdentityEmail">未识别用户</span>
+          <small id="accountIdentityRole">用户</small>
         </div>
         <nav>
-          <button class="active" type="button" data-account-view="routes"><span class="account-nav-index">01</span><span>我的路线</span><small id="accountRouteCount">0</small></button>
-          <button type="button" data-account-view="scenic"><span class="account-nav-index">02</span><span>景点介绍</span><small id="accountSceneCount">0</small></button>
-          <button type="button" data-account-view="admin" id="accountAdminNav" hidden><span class="account-nav-index">03</span><span>管理</span><small>admin</small></button>
+          <button class="active" type="button" data-account-view="profile"><span class="account-nav-index">01</span><span>个人介绍</span><small></small></button>
+          <button type="button" data-account-view="routes"><span class="account-nav-index">02</span><span>我的路线</span><small id="accountRouteCount">0</small></button>
+          <button type="button" data-account-view="scenic"><span class="account-nav-index">03</span><span>景点介绍</span><small id="accountSceneCount">0</small></button>
+          <button type="button" data-account-view="community"><span class="account-nav-index">04</span><span>社区论坛</span><small id="communityUnreadCount"></small></button>
+          <button type="button" data-account-view="admin" id="accountAdminNav" hidden><span class="account-nav-index">05</span><span>管理</span><small>admin</small></button>
           <button type="button" data-account-view="logout"><span class="account-nav-index">↗</span><span>退出</span><small></small></button>
         </nav>
       </aside>
       <main class="account-workspace">
-        <section class="account-view active" id="accountViewRoutes">
+        <section class="account-view active" id="accountViewProfile">
+          <div class="account-workspace-head">
+            <h2>个人介绍</h2>
+            <span id="profilePageEmail">未识别用户</span>
+          </div>
+          <div class="profile-page-layout">
+            <section class="profile-editor" id="profileEditor">
+              <div class="profile-editor-avatar profile-avatar" id="profileEditorAvatar"><span class="user-menu-icon" aria-hidden="true"></span></div>
+              <div class="profile-editor-fields">
+                <label>昵称<input id="profileNicknameInput" maxlength="40" /></label>
+                <label>自我介绍<textarea id="profileBioInput" maxlength="500"></textarea></label>
+                <label>头像<input id="profileAvatarInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
+                <div class="profile-editor-actions">
+                  <button class="primary" id="profileSaveBtn" type="button">保存</button>
+                  <button id="profileRemoveAvatarBtn" type="button">移除头像</button>
+                </div>
+              </div>
+            </section>
+            <section class="profile-contributions">
+              <div class="profile-contribution-summary" id="profileContributionSummary"></div>
+              <div class="profile-contribution-columns">
+                <div><h3>公共路线</h3><div id="profileRouteContributions" class="profile-contribution-list"></div></div>
+                <div><h3>景点维护</h3><div id="profileSceneContributions" class="profile-contribution-list"></div></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="account-view" id="accountViewRoutes">
           <div class="account-workspace-head">
             <h2>我的路线</h2>
             <span>管理自己的路线，或从公共路线库导入一份独立副本。</span>
@@ -151,6 +182,28 @@
           </div>
           <div class="account-content-pane" id="accountScenePublicPane">
             <div class="account-list" id="accountPublicSceneList"></div>
+          </div>
+        </section>
+
+        <section class="account-view community-view" id="accountViewCommunity">
+          <div class="account-workspace-head">
+            <h2>社区论坛</h2>
+            <span>所有旅行者</span>
+          </div>
+          <div class="community-shell">
+            <div class="community-messages" id="communityMessages"></div>
+            <div class="community-composer">
+              <div class="community-reply-preview" id="communityReplyPreview" hidden>
+                <span id="communityReplyText"></span>
+                <button type="button" id="communityCancelReplyBtn" title="取消引用">×</button>
+              </div>
+              <textarea id="communityMessageInput" maxlength="4000" placeholder="发送消息"></textarea>
+              <div class="community-composer-actions">
+                <label class="community-file-picker">附件<input id="communityAttachmentInput" type="file" multiple /></label>
+                <span id="communityAttachmentNames"></span>
+                <button class="primary" id="communitySendBtn" type="button">发送</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -299,6 +352,16 @@
       <div class="modal-body">
         <div class="account-list compact" id="sceneDiffList"></div>
       </div>
+    </div>
+  </div>
+
+  <div class="modal" id="profileModal">
+    <div class="modal-card profile-modal-card">
+      <div class="modal-head">
+        <strong>个人介绍</strong>
+        <button class="small" type="button" data-dialog-close="profileModal">关闭</button>
+      </div>
+      <div class="modal-body" id="profileModalBody"></div>
     </div>
   </div>
 

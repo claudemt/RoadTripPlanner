@@ -91,7 +91,7 @@ data/routes/<路线名>/
 <路线名>.mp4
 ```
 
-`data/routes/` 和 `data/config/local.env` 属于本地个人数据，不提交到 Git。网站模式的路线、公共路线、景点介绍和公共资产保存在 Supabase。
+`data/routes/` 和 `config/local.env` 属于本地个人数据，不提交到 Git。网站模式的路线、公共路线、景点介绍和公共资产保存在 Supabase。
 
 ## 景点资料
 
@@ -108,13 +108,13 @@ data/routes/<路线名>/
 | `app/video/` | Remotion 视频工程 |
 | `app/cloud/` | Supabase 迁移和云端配置说明 |
 | `data/routes/` | 本地开发模式的临时导出文件，不提交 |
-| `data/config/` | 本地私有配置 |
+| `config/` | 本地私有配置 |
 | `docs/` | 项目文档 |
 
 ## 安全约定
 
 - 不要提交 Supabase Service Role Key。
-- 不要提交 `.env.production`、`worker.env`、`data/config/local.env`。
+- 不要提交 `.env.production`、`worker.env`、`config/local.env`。
 - 不要提交个人路线和导出文件。
 - Cloud-IAM 默认管理员密码上线前必须修改。
 - 高德地图 Key 在网站中由 admin 维护。

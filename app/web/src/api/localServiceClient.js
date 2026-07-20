@@ -60,6 +60,27 @@
       saveConfig(config) {
         return postJson('/api/config', config);
       },
+      getProfile(email = '') {
+        return fetchJson(apiUrl(email
+          ? `/api/profiles/${encodeURIComponent(email)}`
+          : '/api/profile'));
+      },
+      saveProfile(profile) {
+        return fetchJson(apiUrl('/api/profile'), {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(profile || {}),
+        });
+      },
+      listCommunityMessages(limit = 100) {
+        return fetchJson(apiUrl(`/api/community/messages?limit=${encodeURIComponent(limit)}`));
+      },
+      postCommunityMessage(message) {
+        return postJson('/api/community/messages', message);
+      },
+      withdrawCommunityMessage(messageId) {
+        return fetchJson(apiUrl(`/api/community/messages/${encodeURIComponent(messageId)}`), {method: 'DELETE'});
+      },
       saveRoute(routeData, mapLayer) {
         return postJson('/api/routes', {routeData, mapLayer});
       },
@@ -95,9 +116,6 @@
       },
       listScenicRevisions(name) {
         return fetchJson(apiUrl(`/api/scenic-revisions?name=${encodeURIComponent(name || '')}`));
-      },
-      saveScenic(payload) {
-        return postJson('/api/scenic', payload);
       },
       deleteScenic(name) {
         return fetchJson(apiUrl(`/api/scenic?name=${encodeURIComponent(name || '')}`), {method: 'DELETE'});

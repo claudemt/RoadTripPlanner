@@ -60,14 +60,13 @@ curl -H 'X-Auth-Request-Email: user@example.com' \
 /
 /api/*
 /route/*
-/scene/*
 ```
 
 ## 6. 数据隔离
 
 - 路线草稿：浏览器中按邮箱隔离。
 - 路线导出：`data/routes/users/<email>/`。
-- 景点资料：全站共享。
+- 景点资料：公共内容和用户内容保存在 Supabase。
 - 高德地图配置：全站共享。
 
 ## 7. 升级

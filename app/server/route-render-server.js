@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const {spawn} = require('child_process');
+const {createCommunityService} = require('./community-service');
 let createSupabaseClient = null;
 try {
   ({createClient: createSupabaseClient} = require('@supabase/supabase-js'));
@@ -15,14 +16,15 @@ const AMAP_ROOT = path.dirname(APPLICATION_ROOT);
 const DATA_ROOT = process.env.ROADTRIP_DATA_ROOT
   ? path.resolve(process.env.ROADTRIP_DATA_ROOT)
   : path.join(AMAP_ROOT, 'data');
-const CONFIG_ROOT = path.join(DATA_ROOT, 'config');
+const CONFIG_ROOT = process.env.ROADTRIP_CONFIG_ROOT
+  ? path.resolve(process.env.ROADTRIP_CONFIG_ROOT)
+  : path.join(AMAP_ROOT, 'config');
 const REMOTION_ROOT = path.join(APPLICATION_ROOT, 'video');
 const REMOTION_DATA = path.join(REMOTION_ROOT, 'src', 'projects', 'amap-route-video', 'data', 'route-video-data.json');
 const ROUTE_ROOT = path.join(DATA_ROOT, 'routes');
 const BUILD_ROOT = path.join(APPLICATION_ROOT, 'dist');
 const SOURCE_WEB_ROOT = path.join(APPLICATION_ROOT, 'web');
 const PUBLIC_ROOT = fs.existsSync(path.join(BUILD_ROOT, 'index.html')) ? BUILD_ROOT : SOURCE_WEB_ROOT;
-const SCENE_ROOT = path.join(DATA_ROOT, 'scenes');
 const PORT = Number(process.env.AMAP_ROUTE_PORT || 6137);
 const HOST = String(process.env.AMAP_ROUTE_HOST || '127.0.0.1').trim() || '127.0.0.1';
 const USER_EMAIL_HEADER = String(process.env.ROADTRIP_USER_EMAIL_HEADER || 'X-Auth-Request-Email').trim().toLowerCase();
@@ -34,9 +36,9 @@ const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY |
 const REQUIRE_SUPABASE = /^(1|true|yes|on)$/i.test(String(process.env.ROADTRIP_REQUIRE_SUPABASE || 'false').trim());
 const SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_SCENE_IMAGE_BUCKET || 'roadtrip-scene-images').trim();
 const PRIVATE_SCENE_IMAGE_BUCKET = String(process.env.ROADTRIP_PRIVATE_SCENE_IMAGE_BUCKET || 'roadtrip-scene-private').trim();
-const LEGACY_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_ROUTE_ASSET_BUCKET || 'roadtrip-route-assets').trim();
 const PRIVATE_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_PRIVATE_ROUTE_ASSET_BUCKET || 'roadtrip-route-private').trim();
 const PUBLIC_ROUTE_ASSET_BUCKET = String(process.env.ROADTRIP_PUBLIC_ROUTE_ASSET_BUCKET || 'roadtrip-route-public').trim();
+const COMMUNITY_ASSET_BUCKET = String(process.env.ROADTRIP_COMMUNITY_ASSET_BUCKET || 'roadtrip-community-private').trim();
 const SUPABASE_TABLES = {
   routes: String(process.env.ROADTRIP_ROUTES_TABLE || 'roadtrip_routes').trim(),
   scenes: String(process.env.ROADTRIP_SCENES_TABLE || 'roadtrip_scenes').trim(),
@@ -53,11 +55,7 @@ const REMOTION_WIDTH = String(process.env.ROUTE_RENDER_WIDTH || 1280);
 const REMOTION_HEIGHT = String(process.env.ROUTE_RENDER_HEIGHT || 720);
 const REMOTION_FPS = String(process.env.ROUTE_RENDER_FPS || 30);
 const ROUTE_ASSET_SIGNED_URL_SECONDS = Math.max(60, Number(process.env.ROADTRIP_ROUTE_ASSET_SIGNED_URL_SECONDS || 7200));
-const KEY_CANDIDATES = [
-  path.join(CONFIG_ROOT, 'local.env'),
-  path.join(AMAP_ROOT, '.env.local'),
-  path.join(AMAP_ROOT, '.env'),
-];
+const KEY_CANDIDATES = [path.join(CONFIG_ROOT, 'local.env')];
 
 const firstHeaderValue = (value) => {
   if (Array.isArray(value)) return value[0] || '';
@@ -154,9 +152,6 @@ const isPathInside = (root, target) => {
 
 const toPublicAssetPath = (value) => {
   const absolute = path.resolve(value);
-  if (isPathInside(SCENE_ROOT, absolute)) {
-    return `scene/${path.relative(SCENE_ROOT, absolute).replace(/\\/g, '/')}`;
-  }
   if (isPathInside(ROUTE_ROOT, absolute)) {
     return `route/${path.relative(ROUTE_ROOT, absolute).replace(/\\/g, '/')}`;
   }
@@ -168,9 +163,6 @@ const toPublicAssetPath = (value) => {
 
 const resolvePublicAssetFile = (value) => {
   const relative = normalizeAssetPath(value);
-  if (relative === 'scene' || relative.startsWith('scene/')) {
-    return path.resolve(SCENE_ROOT, relative.slice('scene'.length).replace(/^\/+/, ''));
-  }
   if (relative === 'route' || relative.startsWith('route/')) {
     return path.resolve(ROUTE_ROOT, relative.slice('route'.length).replace(/^\/+/, ''));
   }
@@ -516,16 +508,6 @@ const markdownImageGrid = (spotName, sources) => {
   return rows.join('\n');
 };
 
-const findSceneSpot = (name) => {
-  const target = normalizeSceneName(name);
-  if (!target || !fs.existsSync(SCENE_ROOT)) return null;
-  const folders = fs.readdirSync(SCENE_ROOT, {withFileTypes: true}).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  const spots = folders
-    .map((folder) => parseSceneFile(path.join(SCENE_ROOT, folder, `${folder}.js`)))
-    .filter(Boolean);
-  return spots.find((spot) => normalizeSceneName(spot.name) === target) || null;
-};
-
 const scenicImagesForManual = (spot, outputDir, limit = 4) =>
   (spot?.images || [])
     .filter((src) => {
@@ -572,7 +554,7 @@ const buildTravelManual = (videoData, routeData, options = {}) => {
     lines.push('### 点位说明');
     (day.points || []).forEach((point) => {
       const role = point.kind === 'from' ? '起点' : point.kind === 'to' ? '终点' : '途径点';
-      const scenic = findSceneSpot(point.name);
+      const scenic = point.scenic || null;
       lines.push(`- **${role}｜${mdEscape(point.name)}**`);
       if (point.kind !== 'from' && scenic?.description) lines.push(`  - ${mdEscape(scenic.description)}`);
       const images = point.kind === 'from' ? [] : scenicImagesForManual(scenic, options.outputDir);
@@ -720,53 +702,6 @@ const loadJson = (file, fallback = null) => {
   }
 };
 
-const parseSceneFile = (file) => {
-  try {
-    if (!fs.existsSync(file)) return null;
-    const text = fs.readFileSync(file, 'utf8');
-    const match = text.match(/window\.SCENIC_SPOTS\.push\(([\s\S]*?)\);\s*$/);
-    if (!match) return null;
-    return JSON.parse(match[1]);
-  } catch (_) {
-    return null;
-  }
-};
-
-const writeSceneInfo = (payload) => {
-  const pointName = String(payload.name || payload.title || '').trim();
-  if (!pointName) throw new Error('景点名称不能为空');
-  const folderName = safeName(pointName);
-  const dir = path.join(SCENE_ROOT, folderName);
-  ensureDir(dir);
-
-  const sceneFile = path.join(dir, `${folderName}.js`);
-  const existing = parseSceneFile(sceneFile) || {};
-  const images = Array.isArray(existing.images) ? [...existing.images] : [];
-  const incoming = Array.isArray(payload.images) ? payload.images : [];
-
-  incoming.forEach((image, index) => {
-    const dataUrl = String(image.dataUrl || '');
-    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) return;
-    const ext = safeExt(image.name, match[1]);
-    const filename = `${folderName}-photo-${String(images.length + index + 1).padStart(2, '0')}${ext}`;
-    const target = path.join(dir, filename);
-    fs.writeFileSync(target, Buffer.from(match[2], 'base64'));
-    const publicPath = `scene/${folderName}/${filename}`;
-    if (!images.includes(publicPath)) images.push(publicPath);
-  });
-
-  const spot = {
-    title: String(payload.title || existing.title || pointName).trim(),
-    name: pointName,
-    images,
-    description: String(payload.description || existing.description || '').trim(),
-  };
-  const js = `window.SCENIC_SPOTS = window.SCENIC_SPOTS || [];\nwindow.SCENIC_SPOTS.push(${JSON.stringify(spot, null, 2)});\n`;
-  fs.writeFileSync(sceneFile, js, 'utf8');
-  return {folderName, file: sceneFile, spot};
-};
-
 let supabaseClient = null;
 
 const getSupabaseClient = () => {
@@ -824,6 +759,15 @@ const getStorageUserId = async (email) => {
   return data.storage_user_id;
 };
 
+const communityService = createCommunityService({
+  getSupabase: requireSupabaseClient,
+  getStorageUserId,
+  normalizeEmail,
+  isAdmin: isAdminIdentity,
+  bucket: COMMUNITY_ASSET_BUCKET,
+  signedUrlSeconds: ROUTE_ASSET_SIGNED_URL_SECONDS,
+});
+
 const normalizeCloudRouteId = (routeData) => {
   const id = String(routeData?.id || '').trim();
   if (id) return id.slice(0, 120);
@@ -840,14 +784,10 @@ const isRouteAssetDescriptor = (value) =>
   value && typeof value === 'object' && typeof value.storageBucket === 'string' && typeof value.storagePath === 'string';
 
 const getRouteAssetDescriptor = (routeData, key) => {
-  const assets = routeData?._assets || routeData?.assets || {};
+  const assets = routeData?._assets || {};
   const canonical = canonicalAssetKey(key);
-  const value = assets[canonical] || assets[key] || assets[`${canonical}Url`] || assets[`${key}Url`];
-  if (!value) return null;
-  if (typeof value === 'string') return /^https?:\/\//i.test(value) ? {url: value} : null;
-  if (isRouteAssetDescriptor(value)) return {...value};
-  if (typeof value.url === 'string' && /^https?:\/\//i.test(value.url)) return {...value};
-  return null;
+  const value = assets[canonical] || assets[key];
+  return isRouteAssetDescriptor(value) ? {...value} : null;
 };
 
 const getRouteAssetDescriptors = (routeData) =>
@@ -859,9 +799,8 @@ const getRouteAssetDescriptors = (routeData) =>
 
 const routeAssetUrlFromDescriptor = async (supabase, descriptor) => {
   if (!descriptor) return null;
-  if (typeof descriptor.url === 'string' && /^https?:\/\//i.test(descriptor.url)) return descriptor.url;
   if (!descriptor.storageBucket || !descriptor.storagePath || !supabase) return null;
-  if (descriptor.storageBucket === PUBLIC_ROUTE_ASSET_BUCKET || descriptor.storageBucket === LEGACY_ROUTE_ASSET_BUCKET) {
+  if (descriptor.storageBucket === PUBLIC_ROUTE_ASSET_BUCKET) {
     const {data} = supabase.storage.from(descriptor.storageBucket).getPublicUrl(descriptor.storagePath);
     return data?.publicUrl || null;
   }
@@ -878,16 +817,6 @@ const resolveRouteAssetUrls = async (routeData) => {
   const result = {};
   for (const [key, descriptor] of Object.entries(descriptors)) {
     result[key] = await routeAssetUrlFromDescriptor(supabase, descriptor);
-  }
-  result.videoJson = result.videoData || result.videoJson || null;
-  return result;
-};
-
-const getRouteAssetUrls = (routeData) => {
-  const descriptors = getRouteAssetDescriptors(routeData);
-  const result = {};
-  for (const [key, descriptor] of Object.entries(descriptors)) {
-    result[key] = descriptor.url || null;
   }
   result.videoJson = result.videoData || result.videoJson || null;
   return result;
@@ -1622,7 +1551,6 @@ const downloadRouteAssetDescriptor = async (supabase, descriptor) => {
     if (error) throw error;
     return Buffer.from(await data.arrayBuffer());
   }
-  if (descriptor.url) return fetchAssetBuffer(descriptor.url);
   return null;
 };
 
@@ -2527,10 +2455,7 @@ const serveStatic = (req, res, identity) => {
   if (pathname === '/') pathname = '/index.html';
   let root = PUBLIC_ROOT;
   let relativePath = pathname;
-  if (pathname.startsWith('/scene/')) {
-    root = SCENE_ROOT;
-    relativePath = pathname.slice('/scene'.length);
-  } else if (pathname.startsWith('/route/')) {
+  if (pathname.startsWith('/route/')) {
     root = ROUTE_ROOT;
     relativePath = pathname.slice('/route'.length);
   }
@@ -2829,7 +2754,7 @@ const server = http.createServer(async (req, res) => {
         securityJsCode,
         configured: Boolean(key && securityJsCode),
         editable: !isSupabaseConfigured() || isAdminIdentity(identity),
-        source: cloud?.source || (keys.key ? 'data/config/local.env' : process.env.AMAP_KEY ? 'process env' : null),
+        source: cloud?.source || (keys.key ? 'config/local.env' : process.env.AMAP_KEY ? 'process env' : null),
       });
     }
     if (req.method === 'POST' && url.pathname === '/api/config') {
@@ -2848,6 +2773,52 @@ const server = http.createServer(async (req, res) => {
       }
       const file = writeKeyFile({key, securityJsCode});
       return send(res, 200, {ok: true, file, key, securityJsCode});
+    }
+    if (req.method === 'GET' && url.pathname === '/api/profile') {
+      try {
+        return send(res, 200, await communityService.getProfile(identity.email, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'PUT' && url.pathname === '/api/profile') {
+      try {
+        return send(res, 200, await communityService.saveProfile(await readBody(req), identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/api/profiles/')) {
+      try {
+        const email = decodeURIComponent(url.pathname.slice('/api/profiles/'.length));
+        return send(res, 200, await communityService.getProfile(email, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/community/messages') {
+      try {
+        return send(res, 200, await communityService.listMessages({
+          limit: url.searchParams.get('limit'),
+        }, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/community/messages') {
+      try {
+        return send(res, 200, await communityService.postMessage(await readBody(req), identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/community/messages/')) {
+      try {
+        const messageId = decodeURIComponent(url.pathname.slice('/api/community/messages/'.length));
+        return send(res, 200, await communityService.withdrawMessage(messageId, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
     }
     if (req.method === 'GET' && url.pathname === '/api/scenic') {
       const name = url.searchParams.get('name') || '';
@@ -2904,15 +2875,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/scenic-revisions') {
       const revisions = await listCloudSceneRevisions(url.searchParams.get('name') || '');
       return send(res, 200, {ok: true, revisions: revisions || []});
-    }
-    if (req.method === 'POST' && url.pathname === '/api/scenic') {
-      const payload = await readBody(req);
-      if (isSupabaseConfigured()) {
-        const result = await saveCloudScenic(payload, identity);
-        return send(res, 200, result);
-      }
-      const result = writeSceneInfo(payload);
-      return send(res, 200, {ok: true, ...result});
     }
     if (req.method === 'DELETE' && url.pathname === '/api/scenic') {
       try {

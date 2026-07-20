@@ -20,7 +20,8 @@
     renderAll,
     calculateRoute,
     isMapReady,
-    getEditableRoute
+    getEditableRoute,
+    onImported
   }) {
     let archivedRoutes = [];
     let publishedRoutes = [];
@@ -287,6 +288,7 @@
         setState({route, currentRouteView: 'all', segmentResults: []});
         saveRoute(false);
         renderAll(true);
+        onImported?.(route);
         if (isMapReady() && route.days.some((day) => getDayPoints(day).map((item) => item.point).filter(isPointReady).length >= 2)) {
           calculateRoute();
         }

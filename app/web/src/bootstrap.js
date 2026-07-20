@@ -65,6 +65,7 @@ await import('./ui/feedback.js');
 await import('./ui/dialogController.js');
 await import('./ui/routeRenderer.js');
 await import('./features/scenic/scenicController.js');
+await import('./features/community/communityController.js');
 await import('./features/export/exportTaskController.js');
 await import('./features/map/routeMapController.js');
 await import('./features/search/placeSearchController.js');

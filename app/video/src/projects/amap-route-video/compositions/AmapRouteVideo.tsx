@@ -19,7 +19,10 @@ type Props = {
 type LabelMode = 'none' | 'endpoints' | 'all';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-const safeAsset = (src: string) => staticFile(String(src || '').replace(/\\/g, '/').replace(/^\.\//, ''));
+const safeAsset = (src: string) => {
+  const value = String(src || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  return /^(https?:|data:)/i.test(value) ? value : staticFile(value);
+};
 const stripDayPrefix = (value: string) =>
   String(value || '')
     .replace(/^\s*D\s*\d+\s*[：:、.．-]?\s*/i, '')
@@ -456,5 +459,4 @@ export const AmapRouteVideo: React.FC<Props> = ({data, amapKey, amapSecurityCode
     </AbsoluteFill>
   );
 };
-
 
