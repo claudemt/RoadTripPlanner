@@ -8,8 +8,8 @@
     escapeJsAttr,
     toast
   }) {
-    const loadedFolders = {};
     let openedAt = 0;
+    const sceneCache = [];
 
     function updateImageList() {
       const files = [...(el('pointScenicImages').files || [])];
@@ -48,11 +48,7 @@
       if (!shouldPublish) return {privateScene: saved.scene};
       const {response, data} = await localService.publishUserScene(saved.scene.id, '从行程编辑器发布');
       if (!response.ok || !data?.ok) throw new Error(data?.message || '发布景点介绍失败');
-      if (data.spot) {
-        window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
-          .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(point.name));
-        window.SCENIC_SPOTS.push(data.spot);
-      }
+      if (data.spot) cacheInfo(point.name, data.spot);
       return {...data, privateScene: saved.scene};
     }
 
@@ -78,27 +74,10 @@
       return data;
     }
 
-    async function saveScenicInfo({name, title, description, files = []}) {
-      if (!description && !files.length) return null;
-      const images = await prepareImages(files);
-      const {response, data: result} = await localService.saveScenic({
-        name,
-        title: title || name,
-        description,
-        images
-      });
-      if (!response.ok || !result.ok) throw new Error(result.message || '保存景点介绍失败');
-      window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
-        .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(name));
-      window.SCENIC_SPOTS.push(result.spot);
-      loadedFolders[result.folderName] = Promise.resolve();
-      return result;
-    }
-
     function findInfo(name) {
       const target = normalizeSpotName(name);
-      if (!target || !Array.isArray(window.SCENIC_SPOTS)) return null;
-      return window.SCENIC_SPOTS.find((spot) => {
+      if (!target) return null;
+      return sceneCache.find((spot) => {
         return [spot.name, spot.title].some((alias) => {
           const normalized = normalizeSpotName(alias);
           return normalized && target === normalized;
@@ -106,65 +85,32 @@
       }) || null;
     }
 
-    function folderCandidates(name) {
-      const raw = String(name || '').replace(/（.*?）|\(.*?\)/g, '').trim();
-      const normalized = normalizeSpotName(raw);
-      return [...new Set([raw, normalized].filter(Boolean))];
-    }
-
-    function scriptUrl(folder) {
-      const encoded = String(folder).split('/').map(encodeURIComponent).join('/');
-      return `scene/${encoded}/${encoded}.js`;
-    }
-
-    function loadFolder(folder) {
-      if (loadedFolders[folder]) return loadedFolders[folder];
-      loadedFolders[folder] = new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = scriptUrl(folder);
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('missing'));
-        document.head.appendChild(script);
-      });
-      return loadedFolders[folder];
-    }
-
-    async function ensureInfo(name) {
-      let found = findInfo(name);
-      if (found) return found;
-      if (typeof localService.getScenic === 'function') {
-        try {
-          const {response, data} = await localService.getScenic(name);
-          if (response.ok && data?.spot) {
-            window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
-              .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(name));
-            window.SCENIC_SPOTS.push(data.spot);
-            return data.spot;
-          }
-        } catch (_) {}
-      }
-      for (const folder of folderCandidates(name)) {
-        try {
-          await loadFolder(folder);
-          found = findInfo(name);
-          if (found) return found;
-        } catch (_) {}
-      }
-      return null;
-    }
-
-    async function getLibraryInfo(name) {
-      if (typeof localService.getScenic === 'function') {
-        const {response, data} = await localService.getScenic(name);
-        if (response.ok && data?.spot) {
-          window.SCENIC_SPOTS = (window.SCENIC_SPOTS || [])
-            .filter((spot) => normalizeSpotName(spot.name || spot.title) !== normalizeSpotName(name));
-          window.SCENIC_SPOTS.push(data.spot);
-          return data.spot;
+    function cacheInfo(name, spot) {
+      for (let index = sceneCache.length - 1; index >= 0; index -= 1) {
+        if (normalizeSpotName(sceneCache[index].name || sceneCache[index].title) === normalizeSpotName(name)) {
+          sceneCache.splice(index, 1);
         }
       }
-      return ensureInfo(name);
+      if (spot) sceneCache.push(spot);
+      return spot || null;
     }
+
+    async function loadInfo(name, {fresh = false} = {}) {
+      if (!fresh) {
+        const cached = findInfo(name);
+        if (cached) return cached;
+      }
+      try {
+        const {response, data} = await localService.getScenic(name);
+        if (!response.ok) return null;
+        return cacheInfo(name, data?.spot || null);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    const ensureInfo = (name) => loadInfo(name);
+    const getLibraryInfo = (name) => loadInfo(name, {fresh: true});
 
     async function showSpotInfo(name) {
       const spot = await ensureInfo(name);
@@ -207,10 +153,8 @@
     }
 
     return {
-      isShared: () => Boolean(localService.capabilities?.sharedScenes),
       updateImageList,
       saveFromEditor,
-      saveScenicInfo,
       saveUserScenicInfo,
       ensureInfo,
       getLibraryInfo,

@@ -17,7 +17,6 @@
     renderRouteSelect,
     renderDays,
     renderSummary,
-    syncEditor,
     renderAll,
     calculateRoute,
     isMapReady,
@@ -180,7 +179,6 @@
         renderRouteSelect();
         renderDays();
         renderSummary();
-        syncEditor();
         renderArchiveList();
         setStatus('路线库已同步。');
       } catch (error) {

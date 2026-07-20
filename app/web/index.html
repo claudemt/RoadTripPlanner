@@ -47,26 +47,13 @@
       </div>
 
       <div class="content">
-        <div class="tab-panel active" id="routePanel">
+        <div id="routePanel">
           <div class="summary-compact" style="display:none">
             <span id="sumDays">0天</span><span id="sumMetric">0km/0min</span>
           </div>
           <div id="daysList"></div>
         </div>
 
-        <div class="tab-panel" id="codePanel">
-        <div class="card editor-wrap open" id="editorWrap">
-          <div class="card-title">
-            <span>路线JSON</span>
-            <div>
-              <button class="small primary" id="applyJsonBtn">应用</button>
-            </div>
-          </div>
-          <div class="card-body">
-            <textarea id="jsonEditor" spellcheck="false"></textarea>
-          </div>
-        </div>
-        </div>
       </div>
     </aside>
 
@@ -375,7 +362,6 @@
 
   <div style="display:none">
     <select id="daySelect"></select>
-    <select id="pointType"><option value="waypoint"></option><option value="from"></option><option value="to"></option></select>
   </div>
 
   <div class="status"><div class="toast" id="toast"></div></div>

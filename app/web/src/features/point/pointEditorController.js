@@ -12,12 +12,10 @@
     clearSegments,
     renderAll,
     renderDaySelect,
-    setTab,
     onChanged
   }) {
     let context = null;
     let importedScenic = false;
-    const transportModes = ['drive', 'ride', 'walk'];
 
     function normalizeTransportMode(value) {
       return window.RouteModel?.normalizeTransportMode?.(value) || 'drive';
@@ -101,8 +99,6 @@
             : '修改途径点';
       } else if (nextContext.mode === 'insertAfter') {
         title = '在当前点后添加途径点';
-      } else {
-        title = '添加途径点';
       }
       el('pointModalTitle').textContent = title;
       el('pointSearchInput').value = '';
@@ -124,7 +120,6 @@
       }
       placeSearch.closeSuggestions();
       renderDaySelect();
-      setTab('routePanel');
       el('pointModal').classList.add('open');
       setTimeout(() => el('pointSearchInput').focus(), 50);
     }
@@ -155,7 +150,7 @@
         const insertAt = currentContext.afterKind === 'from' ? 0 : currentContext.waypointIndex + 1;
         day.waypoints.splice(insertAt, 0, point);
       } else {
-        day.waypoints.push(point);
+        return toast('无法识别这个点位编辑操作。');
       }
       try {
         const scenic = await scenicController.saveFromEditor(point, {importFromLibrary: importedScenic});
@@ -189,9 +184,6 @@
         points[index] = point;
       } else if (testContext.mode === 'insertAfter') {
         index = testContext.afterKind === 'from' ? 1 : testContext.waypointIndex + 2;
-        points.splice(index, 0, point);
-      } else if (testContext.mode === 'appendWaypoint') {
-        index = points.length - 1;
         points.splice(index, 0, point);
       }
       const checks = [];

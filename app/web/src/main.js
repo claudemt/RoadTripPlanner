@@ -106,9 +106,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     let currentMapLayer = localStorage.getItem('amap-planner-map-layer') || 'standard';
     let segmentResults = [];
     let currentRouteView = 'all';
-    let activeTabId = 'routePanel';
-    let jsonEditorDirty = true;
-    let jsonSyncTimer = null;
     let cloudSaveTimer = null;
     let accountView = 'routes';
     let accountRouteMode = 'mine';
@@ -138,7 +135,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       renderRouteSelect,
       renderDays,
       renderSummary,
-      syncEditor,
       renderAll,
       calculateRoute,
       isMapReady: routeMap.isReady,
@@ -161,7 +157,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       clearSegments: () => { segmentResults = []; },
       renderAll,
       renderDaySelect,
-      setTab,
       onChanged: () => saveRoute(false)
     });
     const closePointEditor = pointEditor.close;
@@ -216,10 +211,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     function bindEvents() {
       if (eventsBound) return;
       eventsBound = true;
-      document.querySelectorAll('.tab-btn').forEach((btn) => {
-        btn.onclick = () => setTab(btn.dataset.tab);
-      });
-      if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').onclick = () => openSetupOverlay();
       if (el('setupSaveBtn')) el('setupSaveBtn').onclick = () => saveAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       el('newRouteBtn').onclick = createRouteFromPrompt;
@@ -240,7 +231,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       bindExportModal();
       el('spotCloseBtn').onclick = scenicController.closeSpotPanel;
       el('imageLightbox').onclick = scenicController.closeLightbox;
-      el('applyJsonBtn').onclick = applyJson;
       el('routeSelect').onchange = selectRouteFromDropdown;
       el('routeViewSelect').onchange = () => {
         currentRouteView = el('routeViewSelect').value;
@@ -591,7 +581,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function bindRouteLibraryControls() {
-      if (el('routeLibraryBtn')) el('routeLibraryBtn').onclick = openRouteLibrary;
       if (el('routeLibraryCloseBtn')) el('routeLibraryCloseBtn').onclick = closeRouteLibrary;
       if (el('routeLibraryDoneBtn')) el('routeLibraryDoneBtn').onclick = closeRouteLibrary;
       if (el('publishCurrentRouteBtn')) el('publishCurrentRouteBtn').onclick = archiveController.publishCurrent;
@@ -638,13 +627,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           openRouteLibrary();
         };
       }
-    }
-
-    function setTab(tabId) {
-      activeTabId = tabId;
-      document.querySelectorAll('.tab-btn').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
-      document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === tabId));
-      if (tabId === 'codePanel') syncEditor(true);
     }
 
     function selectRouteFromDropdown() {
@@ -830,7 +812,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       try {
         routeBook.activeRouteId = route.id;
         routeStore.save(routeBook);
-        syncEditor();
         if (localService.capabilities?.cloudRoutes) {
           if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
           if (showToast) toast('正在保存路线…');
@@ -911,7 +892,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         const {response, data} = await saveRouteNow(target);
         if (!response.ok || !data?.ok) throw new Error(data?.message || '保存失败');
         renderRouteSelect();
-        if (route?.id === routeId) syncEditor();
         toast('路线名称已更新。');
         return true;
       } catch (error) {
@@ -950,30 +930,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       return true;
     }
 
-    function syncEditor(force = false) {
-      jsonEditorDirty = true;
-      if (activeTabId !== 'codePanel') return;
-      if (jsonSyncTimer) clearTimeout(jsonSyncTimer);
-      if (force) {
-        jsonSyncTimer = null;
-        syncEditorNow(true);
-        return;
-      }
-      jsonSyncTimer = setTimeout(() => {
-        jsonSyncTimer = null;
-        syncEditorNow(false);
-      }, 0);
-    }
-
-    function syncEditorNow(force = false) {
-      const editor = el('jsonEditor');
-      if (!editor || activeTabId !== 'codePanel') return;
-      if (!force && !jsonEditorDirty) return;
-      if (!force && document.activeElement === editor) return;
-      editor.value = route ? JSON.stringify(getEditableRoute(route), null, 2) : '';
-      jsonEditorDirty = false;
-    }
-
     function getEditableRoute(input) {
       if (!input && !route) return null;
       const next = normalizeRoute(structuredClone(input || route));
@@ -989,24 +945,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       };
     }
 
-    function applyJson() {
-      try {
-        const parsed = JSON.parse(el('jsonEditor').value);
-        if (!parsed.segmentCache && route?.segmentCache) parsed.segmentCache = route.segmentCache;
-        route = normalizeRoute(parsed);
-        const idx = routeBook.routes.findIndex((r) => r.id === route.id);
-        if (idx >= 0) routeBook.routes[idx] = route;
-        else routeBook.routes.push(route);
-        routeBook.activeRouteId = route.id;
-        segmentResults = [];
-        renderAll(false);
-        calculateRoute();
-        toast('已应用 JSON 路线。');
-      } catch (err) {
-        toast('JSON 格式有误：' + err.message);
-      }
-    }
-
     function renderAll(fit = true) {
       route = route ? normalizeRoute(route) : routeStore.getActive(routeBook) || null;
       renderRouteSelect();
@@ -1014,7 +952,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       renderSummary();
       renderDays();
       renderMarkersAndSegments(fit);
-      syncEditor();
     }
 
     function renderRouteSelect() {
@@ -1086,7 +1023,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         }
         renderAll(true);
         saveRoute(false);
-        setTab('routePanel');
         toast(currentRouteView === 'all' ? '全程路线计算完成。' : '当天路线计算完成。');
       } finally {
         hideLoading();
@@ -1153,7 +1089,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     window.renameDay = function(dayIndex, value) {
       if (route.days[dayIndex]) route.days[dayIndex].title = cleanDayTitle(value) || `第 ${dayIndex + 1} 天`;
       renderDaySelect();
-      syncEditor();
       saveRoute(false);
     };
 
@@ -1463,7 +1398,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         el('exportBtn').title = '后台生成路线文件、手册、PDF 和 MP4';
       }
       if (localService.capabilities?.editableMapConfig === false) {
-        if (el('openSetupFromMapBtn')) el('openSetupFromMapBtn').hidden = true;
         if (el('mapPlaceholder')) {
           const title = el('mapPlaceholder').querySelector('strong');
           const copy = el('mapPlaceholder').querySelector('p');
