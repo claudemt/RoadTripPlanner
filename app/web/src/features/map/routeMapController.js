@@ -1,0 +1,145 @@
+(function () {
+  function create({
+    routeColors,
+    getDayPoints,
+    isPointReady,
+    escapeHtml
+  }) {
+    let provider = null;
+    let map = null;
+
+    async function load(config) {
+      provider = new window.AmapProvider({config});
+      await provider.load();
+    }
+
+    async function createMap(containerId, options, onClick) {
+      if (!provider) throw new Error('地图 Provider 尚未加载');
+      map = await provider.createMap(containerId, options);
+      if (onClick) provider.onClick(onClick);
+      return map;
+    }
+
+    function isReady() {
+      return Boolean(provider && map);
+    }
+
+    function setLayer(layer) {
+      if (provider) provider.setLayer(layer);
+    }
+
+    function render({route, segmentResults, currentRouteView, fit = true, onMarkerClick, onLabelDrag}) {
+      if (!provider) return;
+      provider.clearOverlays();
+      const overlays = [];
+      let pointCount = 0;
+
+      route.days.forEach((day, dayIndex) => {
+        if (currentRouteView !== 'all' && Number(currentRouteView) !== dayIndex) return;
+        const points = getDayPoints(day).filter((item) => isPointReady(item.point));
+        points.forEach((item) => {
+          const color = item.role === '起'
+            ? '#16a34a'
+            : item.role === '终'
+              ? '#ef4444'
+              : routeColors[dayIndex % routeColors.length];
+          const marker = provider.addMarker({
+            point: item.point,
+            label: `<div class="marker-label route-marker-label" data-route-label-key="${dayIndex}:${item.kind}:${item.waypointIndex ?? ''}">D${dayIndex + 1}-${item.role} ${escapeHtml(item.point.name)}</div>`,
+            color,
+            text: item.role,
+            labelOffset: item.point.labelOffset,
+            labelKey: `${dayIndex}:${item.kind}:${item.waypointIndex ?? ''}`,
+            onLabelDrag: (labelOffset) => onLabelDrag?.({item, dayIndex, labelOffset}),
+            onClick: () => onMarkerClick?.({item, dayIndex})
+          });
+          overlays.push(marker);
+          pointCount += 1;
+        });
+      });
+
+      segmentResults.forEach((dayResult, dayIndex) => {
+        if (currentRouteView !== 'all' && Number(currentRouteView) !== dayIndex) return;
+        (dayResult.segments || []).forEach((segment) => {
+          if (!segment.path?.length) return;
+          const path = segment.path.filter(([lng, lat]) => Number.isFinite(Number(lng)) && Number.isFinite(Number(lat)));
+          if (path.length < 2) return;
+          overlays.push(provider.addPolyline({
+            path,
+            color: routeColors[dayIndex % routeColors.length],
+            error: Boolean(segment.error)
+          }));
+        });
+      });
+
+      if (fit && pointCount) provider.fitView(overlays);
+    }
+
+    function clear() {
+      if (provider) provider.clearOverlays();
+    }
+
+    function sleep(milliseconds) {
+      return new Promise((resolve) => setTimeout(resolve, milliseconds));
+    }
+
+    async function route(from, to, mode = 'drive') {
+      return provider.route(from, to, mode);
+    }
+
+    async function calculateDaySegments(day) {
+      const points = getDayPoints(day).map((item) => item.point).filter(isPointReady);
+      const segments = [];
+      if (points.length < 2) return segments;
+      for (let index = 0; index < points.length - 1; index++) {
+        const from = points[index];
+        const to = points[index + 1];
+        const mode = window.RouteModel?.normalizeTransportMode?.(to.transportMode) || 'drive';
+        try {
+          await sleep(700);
+          let result;
+          try {
+            result = await route(from, to, mode);
+          } catch (error) {
+            if (String(error.message || '').includes('QPS')) {
+              await sleep(1800);
+              result = await route(from, to, mode);
+            } else {
+              throw error;
+            }
+          }
+          segments.push({from: from.name, to: to.name, mode, ...result});
+        } catch (error) {
+          segments.push({
+            from: from.name,
+            to: to.name,
+            mode,
+            distance: 0,
+            duration: 0,
+            path: [[from.lng, from.lat], [to.lng, to.lat]],
+            error: error.message || '路线计算失败',
+            fallback: true
+          });
+        }
+      }
+      return segments;
+    }
+
+    return {
+      load,
+      createMap,
+      isReady,
+      setLayer,
+      render,
+      clear,
+      calculateDaySegments,
+      searchTips: (keyword) => provider.searchTips(keyword),
+      resolveTip: (tip) => provider.resolveTip(tip),
+      resolvePlace: (keyword) => provider.resolvePlace(keyword),
+      setZoomAndCenter: (zoom, center) => provider.setZoomAndCenter(zoom, center),
+      testSearch: (keyword) => provider.testSearch(keyword)
+    };
+  }
+
+  window.RouteMapController = {create};
+})();

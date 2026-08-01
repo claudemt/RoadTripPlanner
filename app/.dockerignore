@@ -1,0 +1,5 @@
+node_modules
+dist
+video/node_modules
+data
+*.log
