@@ -1,8 +1,14 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const envText = (name, fallback = '') => String(process.env[name] ?? fallback).trim();
 const envFlag = (name, fallback = false) => /^(1|true|yes|on)$/i.test(envText(name, fallback ? 'true' : 'false'));
+const renderConcurrency = () => {
+  const requested = Math.max(1, Number(envText('ROUTE_RENDER_CONCURRENCY', '4')) || 1);
+  const cpuCount = Math.max(1, os.cpus().length || 1);
+  return String(Math.max(1, Math.min(requested, Math.max(1, cpuCount - 1))));
+};
 
 const createRuntimeConfig = (applicationRoot) => {
   const appRoot = path.resolve(applicationRoot);
@@ -47,7 +53,7 @@ const createRuntimeConfig = (applicationRoot) => {
     },
     userEmailHeaderCandidates: [envText('ROADTRIP_USER_EMAIL_HEADER', 'X-Auth-Request-Email').toLowerCase()],
     maxBody: 220 * 1024 * 1024,
-    remotionConcurrency: envText('ROUTE_RENDER_CONCURRENCY', '4'),
+    remotionConcurrency: renderConcurrency(),
     remotionCrf: envText('ROUTE_RENDER_CRF', '23'),
     remotionWidth: envText('ROUTE_RENDER_WIDTH', '1280'),
     remotionHeight: envText('ROUTE_RENDER_HEIGHT', '720'),

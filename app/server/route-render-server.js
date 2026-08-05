@@ -11,6 +11,10 @@ let createSupabaseClient = null;
 try {
   ({createClient: createSupabaseClient} = require('@supabase/supabase-js'));
 } catch (_) {}
+let ensureRemotionBrowser = null;
+try {
+  ({ensureBrowser: ensureRemotionBrowser} = require('@remotion/renderer'));
+} catch (_) {}
 
 const runtimeConfig = createRuntimeConfig(path.dirname(__dirname));
 const {
@@ -2009,6 +2013,7 @@ const writeKeyFile = ({key, securityJsCode}) => {
 
 const resolveBrowserPath = () => {
   if (process.env.AMAP_BROWSER_PATH && fs.existsSync(process.env.AMAP_BROWSER_PATH)) return process.env.AMAP_BROWSER_PATH;
+  const remotionHome = path.join(os.homedir(), '.remotion', 'chrome-headless-shell', 'linux64', 'chrome-headless-shell-linux64', 'chrome-headless-shell');
   const candidates = [
     path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
     path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -2020,8 +2025,27 @@ const resolveBrowserPath = () => {
     '/usr/bin/google-chrome',
     '/usr/bin/chromium-browser',
     '/usr/bin/chromium',
+    remotionHome,
   ];
   return candidates.find((item) => item && fs.existsSync(item)) || null;
+};
+
+let exportBrowserPromise = null;
+const ensureExportBrowser = async () => {
+  const existing = resolveBrowserPath();
+  if (existing) return existing;
+  if (!ensureRemotionBrowser) return null;
+  if (!exportBrowserPromise) {
+    exportBrowserPromise = ensureRemotionBrowser({
+      browserExecutable: null,
+      chromeMode: 'headless-shell',
+      logLevel: 'error',
+    }).then((status) => status?.path || null).catch((error) => {
+      exportBrowserPromise = null;
+      throw new Error(`无法准备 Remotion 浏览器：${error.message}`);
+    });
+  }
+  return exportBrowserPromise;
 };
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -2650,6 +2674,8 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
   setExportProgress({phase: 'files', message: '正在保存路线数据…', percent: 5});
   const archived = archivePayload(payload, routeRoot, identity);
   assertExportNotCancelled();
+  const browserExecutable = await ensureExportBrowser();
+  if (!browserExecutable) throw new Error('服务器没有可用的 Chromium，无法生成 MP4、PNG 和 PDF。');
   setExportProgress({phase: 'manual', message: '正在生成 MD 手册…', percent: 14});
   const output = path.join(archived.dir, `${archived.safeName}.mp4`);
   const renderOutput = path.join(archived.dir, `${archived.safeName}.render.mp4`);
