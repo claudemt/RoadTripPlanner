@@ -1049,7 +1049,14 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         },
         onLabelDrag: ({item, labelOffset}) => {
           item.point.labelOffset = normalizeLabelOffset(labelOffset);
-          saveRoute(false);
+          routeStore.save(routeBook);
+          if (localService.capabilities?.cloudRoutes) {
+            saveRouteNow(route).then(({response, data}) => {
+              if (!response.ok || !data?.ok) toast('文字位置保存失败：' + (data?.message || '请稍后重试'));
+            }).catch((error) => {
+              toast('文字位置保存失败：' + error.message);
+            });
+          }
         }
       });
     }
@@ -1477,7 +1484,34 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         }
         if (!response.ok || !result.ok) throw new Error(result.message || '导出失败');
         if (result.queued) {
-          toast(result.job?.render_video ? '全量导出已进入队列，视频会在后台生成。' : '导出任务已进入队列。');
+          startExportTaskPolling({
+            open: false,
+            taskId: result.taskId,
+            onDone: async (state) => {
+              try {
+                await refreshArchivedRoutes({force: true});
+              } catch (error) {
+                toast('导出已完成，但路线库刷新失败：' + error.message);
+                return;
+              }
+              const resultSummary = state?.result || {};
+              if (state?.progress?.error) {
+                toast('后台导出未完整完成：' + state.progress.error);
+                return;
+              }
+              const parts = ['JSON', 'MD', resultSummary.routeMapImage ? 'PNG' : null, resultSummary.manualPdf ? 'PDF' : null, resultSummary.output ? 'MP4' : null]
+                .filter(Boolean)
+                .join(' + ');
+              const warnings = [
+                resultSummary.videoError ? `视频失败：${resultSummary.videoError}` : null,
+                resultSummary.pdfError ? `PDF 失败：${resultSummary.pdfError}` : null,
+                resultSummary.routeMapError ? `PNG 失败：${resultSummary.routeMapError}` : null,
+                resultSummary.assetUploadError ? `资产上传失败：${resultSummary.assetUploadError}` : null,
+              ].filter(Boolean).join('；');
+              toast(warnings ? `后台导出完成：${parts || '基础文件'}（${warnings}）` : `后台导出完成：${parts || '基础文件'}`);
+            }
+          });
+          toast('完整产品已交给服务器后台渲染，可继续编辑路线。');
           return;
         }
         let refreshError = null;

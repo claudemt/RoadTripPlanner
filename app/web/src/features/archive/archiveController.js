@@ -229,11 +229,8 @@
 
         const state = getState();
         const routeBook = state.routeBook;
-        const route = normalizeRoute(data);
-        route.segmentCache = route.segmentCache || {};
-        const index = routeBook.routes.findIndex((item) => item.id === route.id || item.name === route.name);
-        if (index >= 0) routeBook.routes[index] = route;
-        else routeBook.routes.push(route);
+        const route = routeStore.upsert(routeBook, data);
+        if (!route) throw new Error('导入的路线数据无效');
         routeBook.activeRouteId = route.id;
         let segmentResults = (route.days || []).map((day, dayIndex) => {
           const cached = route.segmentCache?.[dayIndex];

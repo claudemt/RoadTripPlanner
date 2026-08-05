@@ -4,6 +4,8 @@
     let hideTimer = null;
     let dockOpen = false;
     let pollingStartedAt = 0;
+    let expectedTaskId = null;
+    let completionHandler = null;
 
     function isActive(state) {
       return Boolean(state?.rendering || state?.progress?.active);
@@ -55,6 +57,13 @@
           const progress = state?.progress || {};
           const starting = !progress.done && Date.now() - pollingStartedAt < 8000;
           if (starting) return;
+          const completedExpectedTask = progress.done
+            && (!expectedTaskId || state.exportTaskId === expectedTaskId);
+          if (completedExpectedTask && completionHandler) {
+            const handler = completionHandler;
+            completionHandler = null;
+            handler(state);
+          }
           stopPolling();
           clearTimeout(hideTimer);
           hideTimer = setTimeout(() => {
@@ -67,10 +76,12 @@
       }
     }
 
-    function startPolling({open = false} = {}) {
+    function startPolling({open = false, taskId = null, onDone = null} = {}) {
       stopPolling();
       clearTimeout(hideTimer);
       pollingStartedAt = Date.now();
+      expectedTaskId = taskId || null;
+      completionHandler = onDone;
       setDockOpen(open);
       renderDock({rendering: true, progress: {active: true, phase: 'start', message: '正在准备导出…', percent: 1}}, {keepVisible: true});
       refreshDock();

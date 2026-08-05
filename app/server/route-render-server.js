@@ -205,6 +205,7 @@ const createExportTask = (ownerEmail, options = {}) => ({
   cancelled: false,
   children: new Set(),
   progress: null,
+  result: null,
   publishJob: options.publishJob === true,
 });
 
@@ -290,6 +291,7 @@ const getExportProgressForOwner = (ownerEmail) => {
     ok: true,
     rendering: Boolean(activeExport?.ownerEmail === ownerEmail),
     exportTaskId: task?.id || null,
+    result: task?.result || null,
     progress: task?.progress || idleExportProgress(),
   };
 };
@@ -2804,6 +2806,41 @@ const releaseExportTask = () => {
   setTimeout(pumpPublishedRouteJobs, 0);
 };
 
+const runManualExportJob = async (task, payload, identity) => {
+  try {
+    startExportProgress('正在准备导出…');
+    const exported = await exportRouteBundle(payload, getUserRouteRoot(identity), identity);
+    task.result = {
+      routeName: exported.routeName,
+      safeName: exported.safeName,
+      routeMapImage: Boolean(exported.routeMapImage),
+      manualPdf: Boolean(exported.manualPdf),
+      output: Boolean(exported.output),
+      videoError: exported.videoError || null,
+      routeMapError: exported.routeMapError || null,
+      pdfError: exported.pdfError || null,
+      assetUploadError: exported.assetUploadError || null,
+    };
+    const missing = [
+      exported.output ? null : 'MP4',
+      exported.routeMapImage ? null : '路线总览 PNG',
+      exported.manualPdf ? null : 'PDF',
+      exported.assetUploadError ? '云端产品资产' : null,
+    ].filter(Boolean);
+    if (missing.length) {
+      failExportProgress(new Error(`导出未完整完成：缺少 ${missing.join('、')}。${exported.videoError || exported.routeMapError || exported.pdfError || exported.assetUploadError || ''}`));
+    } else {
+      finishExportProgress('导出完成');
+    }
+  } catch (error) {
+    if (error?.code === 'EXPORT_CANCELLED') cancelExportProgress(error.message);
+    else failExportProgress(error);
+    console.error('手动导出失败:', error?.message || error);
+  } finally {
+    releaseExportTask();
+  }
+};
+
 // 公共路线发布后，在后台生成完整产品（JSON/MD/PNG/PDF/MP4/ZIP）。
 // 与手动导出共用单飞渲染锁（rendering/activeExport），队列逐个执行；任务不可取消。
 // 注意：服务器重启会丢失内存队列，未完成的任务保留基础内容（routeJson + 发布时 zip）。
@@ -3174,15 +3211,17 @@ const server = http.createServer(async (req, res) => {
       activeExport = task;
       rendering = true;
       try {
-        startExportProgress('正在准备导出…');
         const payload = await readBody(req);
         assertExportNotCancelled();
         if (!payload?.videoData) throw new Error('缺少 videoData');
         if (payload.routeData || payload.route) validateRouteData(payload.routeData || payload.route);
-        const exported = await exportRouteBundle(payload, getUserRouteRoot(identity), identity);
-        finishExportProgress('导出完成');
-        releaseExportTask();
-        return send(res, 200, {ok: true, ...exported});
+        void runManualExportJob(task, payload, identity);
+        return send(res, 202, {
+          ok: true,
+          queued: true,
+          taskId: task.id,
+          message: '导出任务已在服务器后台启动。',
+        });
       } catch (error) {
         if (error?.code === 'EXPORT_CANCELLED') {
           cancelExportProgress(error.message);
