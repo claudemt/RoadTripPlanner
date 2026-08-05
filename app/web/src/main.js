@@ -1110,7 +1110,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       });
     }
 
-    async function calculateRoute({background = false, resetLabels = true} = {}) {
+    async function calculateRoute({background = false, resetLabels = false} = {}) {
       if (busyActions.has('calculate-route')) {
         if (!background) toast('正在刷新路线，请稍候。');
         return;
