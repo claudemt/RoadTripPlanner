@@ -28,9 +28,6 @@
       this.resizeObserver = null;
     }
 
-    static get LABEL_OFFSET_STEP_X() { return 20; }
-    static get LABEL_OFFSET_STEP_Y() { return 14; }
-
     hasConfig() {
       return Boolean((this.config.key || '').trim() && (this.config.securityJsCode || '').trim());
     }
@@ -167,9 +164,10 @@
     }
 
     labelOffsetPixels(labelOffset) {
+      const size = this.getMapPixelSize();
       return {
-        x: Number(labelOffset?.x || 0) * AmapProvider.LABEL_OFFSET_STEP_X,
-        y: Number(labelOffset?.y || 0) * AmapProvider.LABEL_OFFSET_STEP_Y
+        x: Number(labelOffset?.x || 0) * size.width,
+        y: Number(labelOffset?.y || 0) * size.height
       };
     }
 
@@ -284,9 +282,10 @@
             return;
           }
           const delta = {x: current.x - origin.x, y: current.y - origin.y};
+          const endSize = this.getMapPixelSize();
           const next = {
-            x: (start.x + delta.x) / AmapProvider.LABEL_OFFSET_STEP_X,
-            y: (start.y + delta.y) / AmapProvider.LABEL_OFFSET_STEP_Y
+            x: (start.x + delta.x) / endSize.width,
+            y: (start.y + delta.y) / endSize.height
           };
           binding.labelOffset = this.normalizeLabelOffset(next);
           binding.dragDelta = {x: 0, y: 0};
@@ -320,7 +319,8 @@
       const marker = new AMap.Marker({
         position: [Number(point.lng), Number(point.lat)],
         title: point.name,
-        icon: this.makeIcon(color, text)
+        icon: this.makeIcon(color, text),
+        anchor: 'bottom-center'
       });
       if (onClick) marker.on('click', onClick);
       this.map.add(marker);
