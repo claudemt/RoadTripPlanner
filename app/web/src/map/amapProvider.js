@@ -28,6 +28,9 @@
       this.resizeObserver = null;
     }
 
+    static get LABEL_OFFSET_STEP_X() { return 20; }
+    static get LABEL_OFFSET_STEP_Y() { return 14; }
+
     hasConfig() {
       return Boolean((this.config.key || '').trim() && (this.config.securityJsCode || '').trim());
     }
@@ -164,10 +167,9 @@
     }
 
     labelOffsetPixels(labelOffset) {
-      const size = this.getMapPixelSize();
       return {
-        x: Number(labelOffset?.x || 0) * size.width,
-        y: Number(labelOffset?.y || 0) * size.height
+        x: Number(labelOffset?.x || 0) * AmapProvider.LABEL_OFFSET_STEP_X,
+        y: Number(labelOffset?.y || 0) * AmapProvider.LABEL_OFFSET_STEP_Y
       };
     }
 
@@ -253,7 +255,6 @@
         label.style.cursor = 'grabbing';
         label.classList.add('dragging');
         this.map?.setStatus?.({dragEnable: false});
-        const size = this.getMapPixelSize();
         const start = this.labelOffsetPixels(binding.labelOffset);
         const origin = {x: event.clientX, y: event.clientY};
         const current = {x: event.clientX, y: event.clientY};
@@ -264,10 +265,10 @@
           moveEvent.stopPropagation();
           current.x = moveEvent.clientX;
           current.y = moveEvent.clientY;
-          const delta = {x: current.x - origin.x, y: current.y - origin.y};
-          moved = moved || Math.abs(delta.x) > 2 || Math.abs(delta.y) > 2;
-          binding.dragDelta = delta;
-          this.positionLabel(binding);
+        const delta = {x: current.x - origin.x, y: current.y - origin.y};
+        moved = moved || Math.abs(delta.x) > 2 || Math.abs(delta.y) > 2;
+        binding.dragDelta = delta;
+        this.positionLabel(binding);
         };
         const finish = () => {
           window.removeEventListener('pointermove', move);
@@ -283,10 +284,9 @@
             return;
           }
           const delta = {x: current.x - origin.x, y: current.y - origin.y};
-          const endSize = this.getMapPixelSize();
           const next = {
-            x: (start.x + delta.x) / endSize.width,
-            y: (start.y + delta.y) / endSize.height
+            x: (start.x + delta.x) / AmapProvider.LABEL_OFFSET_STEP_X,
+            y: (start.y + delta.y) / AmapProvider.LABEL_OFFSET_STEP_Y
           };
           binding.labelOffset = this.normalizeLabelOffset(next);
           binding.dragDelta = {x: 0, y: 0};
