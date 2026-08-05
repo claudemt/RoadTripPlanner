@@ -2644,6 +2644,7 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
   let routeMapError = null;
   let mapBgImage = null;
   let mapBgError = null;
+  let videoError = null;
   const baseVideoData = payload.videoData || {};
   if (renderVideo) {
     try {
@@ -2678,34 +2679,50 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
       mapBgImage = fs.existsSync(archived.mapBgImage) ? archived.mapBgImage : null;
     }
     assertExportNotCancelled();
-    setExportProgress({phase: 'mp4', message: '正在渲染 MP4…', percent: 24});
-    result = await runRemotion({
-      videoData: {
-        ...baseVideoData,
-        renderMode: 'video',
-        ...(mapBgImage ? {staticMapImage: toPublicAssetPath(mapBgImage)} : {}),
-      },
-      output: renderOutput,
-      config: payload.config,
-      logFile,
-      progressStart: 24,
-      progressEnd: 78,
-    });
-    assertExportNotCancelled();
-    setExportProgress({phase: 'faststart', message: '正在优化 MP4 播放…', percent: 80});
-    await runFfmpegFaststart({input: renderOutput, output, logFile});
-    videoBitrate = await probeVideoBitrate(output);
     try {
-      fs.rmSync(renderOutput, {force: true});
-    } catch (_) {}
-    result = {output};
+      setExportProgress({phase: 'mp4', message: '正在渲染 MP4…', percent: 24});
+      result = await runRemotion({
+        videoData: {
+          ...baseVideoData,
+          renderMode: 'video',
+          ...(mapBgImage ? {staticMapImage: toPublicAssetPath(mapBgImage)} : {}),
+        },
+        output: renderOutput,
+        config: payload.config,
+        logFile,
+        progressStart: 24,
+        progressEnd: 78,
+      });
+      assertExportNotCancelled();
+      setExportProgress({phase: 'faststart', message: '正在优化 MP4 播放…', percent: 80});
+      try {
+        await runFfmpegFaststart({input: renderOutput, output, logFile});
+        videoBitrate = await probeVideoBitrate(output);
+        fs.rmSync(renderOutput, {force: true});
+        result = {output};
+      } catch (error) {
+        if (!fs.existsSync(renderOutput)) throw error;
+        fs.copyFileSync(renderOutput, output);
+        videoBitrate = await probeVideoBitrate(output);
+        videoError = `MP4 优化失败，已保留原始视频：${error.message}`;
+        result = {output};
+      }
+    } catch (error) {
+      if (error?.code === 'EXPORT_CANCELLED') throw error;
+      videoError = error.message;
+      result = {output: null};
+      try {
+        fs.rmSync(renderOutput, {force: true});
+      } catch (_) {}
+      setExportProgress({phase: 'map', message: 'MP4 渲染失败，继续生成路线图片…', percent: 42});
+    }
   } else {
     setExportProgress({phase: 'map', message: '正在生成路线图片…', percent: 42});
   }
   try {
     assertExportNotCancelled();
-    const progressStart = renderVideo ? 82 : 42;
-    const progressEnd = renderVideo ? 90 : 82;
+    const progressStart = result.output ? 82 : 42;
+    const progressEnd = result.output ? 90 : 82;
     setExportProgress({phase: 'map', message: '正在生成路线图片…', percent: progressStart});
     await runRemotionStill({
       videoData: {
@@ -2752,6 +2769,7 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
     routeMapError,
     mapBgImage,
     mapBgError,
+    videoError,
     manualPdf,
     pdfError,
     videoBitrate,

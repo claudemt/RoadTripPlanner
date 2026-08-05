@@ -824,7 +824,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       el('exportCancelBtn2').onclick = () => dialogs.close('exportModal');
       el('exportStopBtn').onclick = () => cancelCurrentExportTask();
       el('exportConfirmBtn').onclick = async () => {
-        const renderVideo = Boolean(el('exportRenderVideo').checked);
         try {
           const state = await fetchExportTaskState();
           if (isExportActive(state)) {
@@ -837,7 +836,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           return;
         }
         closeExportModal();
-        exportCurrentRoute({renderVideo});
+        exportCurrentRoute();
       };
     }
 
@@ -846,7 +845,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         downloadCurrentRoute();
         return;
       }
-      el('exportRenderVideo').checked = Boolean(localService.capabilities?.cloudExports);
       openDialog('exportModal');
       startExportModalPolling();
     }
@@ -1476,7 +1474,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       });
     }
 
-    async function exportCurrentRoute({renderVideo = false} = {}) {
+    async function exportCurrentRoute({renderVideo = true} = {}) {
       if (busyActions.has('export-route')) return toast('正在导出，请稍候。');
       busyActions.add('export-route');
       const restoreButton = setButtonBusy('exportConfirmBtn', true, '导出中…');
@@ -1514,9 +1512,14 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         const parts = ['JSON', 'MD', result.routeMapImage ? 'PNG' : null, result.manualPdf ? 'PDF' : null, result.output ? 'MP4' : null].filter(Boolean).join(' + ');
         const routeManageStatus = el('routeManageStatus');
         if (routeManageStatus) {
-          routeManageStatus.textContent = `已导出到：${result.dir}${result.routeMapImage ? '；PNG：' + result.routeMapImage : ''}${result.manualPdf ? '；PDF：' + result.manualPdf : ''}${result.routeMapError ? '；PNG 警告：' + result.routeMapError : ''}${result.pdfError ? '；PDF 警告：' + result.pdfError : ''}`;
+          routeManageStatus.textContent = `已导出到：${result.dir}${result.routeMapImage ? '；PNG：' + result.routeMapImage : ''}${result.manualPdf ? '；PDF：' + result.manualPdf : ''}${result.videoError ? '；视频警告：' + result.videoError : ''}${result.routeMapError ? '；PNG 警告：' + result.routeMapError : ''}${result.pdfError ? '；PDF 警告：' + result.pdfError : ''}`;
         }
-        toast(result.pdfError ? `已导出 ${parts}（PDF 失败：${result.pdfError}）` : `已导出：${parts}`);
+        const warnings = [
+          result.videoError ? `视频失败：${result.videoError}` : null,
+          result.pdfError ? `PDF 失败：${result.pdfError}` : null,
+          result.routeMapError ? `PNG 失败：${result.routeMapError}` : null,
+        ].filter(Boolean).join('；');
+        toast(warnings ? `已导出 ${parts}（${warnings}）` : `已导出：${parts}`);
         await refreshArchivedRoutes();
       } catch (error) {
         toast('导出失败：' + error.message);
