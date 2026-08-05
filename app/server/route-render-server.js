@@ -2185,7 +2185,10 @@ const renderMarkdownPdf = async (markdown, pdfPath, title, baseDir = AMAP_ROOT) 
 
   const fileUrl = 'file:///' + htmlPath.replace(/\\/g, '/');
   const debugPort = await getFreePort();
-  const args = ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profileDir}`, `--remote-debugging-port=${debugPort}`, 'about:blank'];
+  const linuxArgs = process.platform === 'linux'
+    ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    : [];
+  const args = [...linuxArgs, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profileDir}`, `--remote-debugging-port=${debugPort}`, 'about:blank'];
   let child = null;
 
   try {
