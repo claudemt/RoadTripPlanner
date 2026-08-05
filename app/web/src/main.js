@@ -145,6 +145,15 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       };
     }
 
+    function persistRouteBook() {
+      if (!routeBook) return;
+      try {
+        routeStore.save(routeBook);
+      } catch (error) {
+        console.warn('Failed to persist route book:', error);
+      }
+    }
+
     async function runExclusive(key, task, {buttonId = '', busyText = '处理中…', message = '正在处理，请稍候。'} = {}) {
       if (busyActions.has(key)) {
         if (message) toast(message);
@@ -159,6 +168,9 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         busyActions.delete(key);
       }
     }
+
+    window.addEventListener('pagehide', persistRouteBook);
+    window.addEventListener('beforeunload', persistRouteBook);
 
     function hasReadyRoutePoints(targetRoute = route) {
       return Boolean(targetRoute?.days?.some((day) => getDayPoints(day)

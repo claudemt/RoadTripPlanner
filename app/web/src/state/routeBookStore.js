@@ -1,5 +1,12 @@
 (function () {
   function create({storageKey, defaultRoute, normalizeRoute}) {
+    function stripRouteForStorage(route) {
+      if (!route || typeof route !== 'object') return route;
+      const next = {...route};
+      delete next.segmentCache;
+      return next;
+    }
+
     function normalizeBook(input) {
       if (input && Array.isArray(input.routes)) {
         const routes = input.routes.map(normalizeRoute).filter(Boolean);
@@ -24,7 +31,12 @@
     }
 
     function save(book) {
-      localStorage.setItem(storageKey, JSON.stringify(normalizeBook(book)));
+      const normalized = normalizeBook(book);
+      const persisted = {
+        activeRouteId: normalized.activeRouteId,
+        routes: normalized.routes.map(stripRouteForStorage)
+      };
+      localStorage.setItem(storageKey, JSON.stringify(persisted));
     }
 
     function getActive(book) {
