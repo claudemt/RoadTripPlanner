@@ -80,7 +80,8 @@
       toast,
       setLoading,
       hideLoading,
-      startExportProgressPolling
+      startExportProgressPolling,
+      stopExportProgressPolling
     };
   }
 

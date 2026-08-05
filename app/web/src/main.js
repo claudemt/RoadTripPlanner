@@ -57,7 +57,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       toast,
       setLoading,
       hideLoading,
-      startExportProgressPolling
+      startExportProgressPolling,
+      stopExportProgressPolling
     } = feedback;
     const scenicController = window.ScenicController.create({
       el,
@@ -1508,7 +1509,14 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           toast(result.job?.render_video ? '全量导出已进入队列，视频会在后台生成。' : '导出任务已进入队列。');
           return;
         }
-        setLoading('导出完成', {percent: 100, detail: '完成'});
+        stopExportProgressPolling();
+        setLoading('正在同步导出结果…', {detail: '整理路线库'});
+        let refreshError = null;
+        try {
+          await refreshArchivedRoutes();
+        } catch (error) {
+          refreshError = error;
+        }
         const parts = ['JSON', 'MD', result.routeMapImage ? 'PNG' : null, result.manualPdf ? 'PDF' : null, result.output ? 'MP4' : null].filter(Boolean).join(' + ');
         const routeManageStatus = el('routeManageStatus');
         if (routeManageStatus) {
@@ -1520,7 +1528,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           result.routeMapError ? `PNG 失败：${result.routeMapError}` : null,
         ].filter(Boolean).join('；');
         toast(warnings ? `已导出 ${parts}（${warnings}）` : `已导出：${parts}`);
-        await refreshArchivedRoutes();
+        if (refreshError) toast('导出已完成，但路线库同步失败：' + refreshError.message);
       } catch (error) {
         toast('导出失败：' + error.message);
       } finally {
