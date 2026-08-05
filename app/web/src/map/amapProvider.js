@@ -157,6 +157,12 @@
       };
     }
 
+    isValidLngLat(point) {
+      return Boolean(point)
+        && Number.isFinite(Number(point.lng))
+        && Number.isFinite(Number(point.lat));
+    }
+
     labelOffsetPixels(labelOffset) {
       const size = this.getMapPixelSize();
       return {
@@ -175,7 +181,13 @@
     }
 
     pointToContainerPixel(point) {
-      const pixel = this.map?.lngLatToContainer?.([point.lng, point.lat]);
+      if (!this.map || !this.isValidLngLat(point) || typeof this.map.lngLatToContainer !== 'function') return {x: 0, y: 0};
+      let pixel = null;
+      try {
+        pixel = this.map.lngLatToContainer([Number(point.lng), Number(point.lat)]);
+      } catch (_) {
+        return {x: 0, y: 0};
+      }
       const x = Number(pixel?.x ?? pixel?.getX?.() ?? 0);
       const y = Number(pixel?.y ?? pixel?.getY?.() ?? 0);
       return {x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0};
@@ -192,6 +204,7 @@
       const offset = this.labelOffsetPixels(binding.labelOffset);
       const x = base.x + offset.x + dragDelta.x;
       const y = base.y + offset.y + dragDelta.y;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       binding.element.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
     }
 
@@ -288,7 +301,7 @@
 
     addHtmlLabel({point, label, labelOffset, onLabelDrag, labelKey}) {
       const layer = this.ensureLabelLayer();
-      if (!layer || !label) return null;
+      if (!layer || !label || !this.isValidLngLat(point)) return null;
       const template = document.createElement('template');
       template.innerHTML = String(label).trim();
       const element = template.content.firstElementChild || document.createElement('div');
@@ -303,8 +316,9 @@
     }
 
     addMarker({point, label, color, text, onClick, labelOffset, onLabelDrag, labelKey}) {
+      if (!this.isValidLngLat(point)) return null;
       const marker = new AMap.Marker({
-        position: [point.lng, point.lat],
+        position: [Number(point.lng), Number(point.lat)],
         title: point.name,
         icon: this.makeIcon(color, text)
       });
@@ -318,8 +332,18 @@
     }
 
     addPolyline({path, color, error}) {
+      const safePath = Array.isArray(path)
+        ? path
+            .map((item) => {
+              const lng = Array.isArray(item) ? Number(item[0]) : Number(item?.lng);
+              const lat = Array.isArray(item) ? Number(item[1]) : Number(item?.lat);
+              return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
+            })
+            .filter(Boolean)
+        : [];
+      if (safePath.length < 2) return null;
       const line = new AMap.Polyline({
-        path,
+        path: safePath,
         strokeColor: error ? '#ef4444' : color,
         strokeWeight: error ? 4 : 6,
         strokeOpacity: error ? 0.55 : 0.8,
@@ -332,8 +356,9 @@
     }
 
     fitView(overlays) {
-      if (this.map && overlays?.length) {
-        this.map.setFitView(overlays, false, [60, 60, 60, 60]);
+      const visibleOverlays = (overlays || []).filter(Boolean);
+      if (this.map && visibleOverlays.length) {
+        this.map.setFitView(visibleOverlays, false, [60, 60, 60, 60]);
         setTimeout(() => this.refreshLabels(), 80);
         setTimeout(() => this.refreshLabels(), 300);
       }

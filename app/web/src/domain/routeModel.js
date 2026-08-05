@@ -33,6 +33,40 @@
     };
   }
 
+  function normalizeSegmentPoint(point) {
+    const lng = Array.isArray(point) ? Number(point[0]) : Number(point?.lng);
+    const lat = Array.isArray(point) ? Number(point[1]) : Number(point?.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+    return [lng, lat];
+  }
+
+  function normalizeSegmentPath(path) {
+    if (!Array.isArray(path)) return [];
+    return path.map(normalizeSegmentPoint).filter(Boolean);
+  }
+
+  function normalizeSegmentCache(segmentCache) {
+    if (!segmentCache || typeof segmentCache !== 'object' || Array.isArray(segmentCache)) return {};
+    return Object.entries(segmentCache).reduce((result, [dayIndex, cached]) => {
+      if (!cached || typeof cached !== 'object' || !Array.isArray(cached.segments)) return result;
+      result[dayIndex] = {
+        signature: String(cached.signature || ''),
+        updatedAt: cached.updatedAt || null,
+        segments: cached.segments.map((segment) => ({
+          from: String(segment?.from || ''),
+          to: String(segment?.to || ''),
+          mode: normalizeTransportMode(segment?.mode),
+          distance: Number(segment?.distance) || 0,
+          duration: Number(segment?.duration) || 0,
+          error: String(segment?.error || ''),
+          fallback: Boolean(segment?.fallback),
+          path: normalizeSegmentPath(segment?.path)
+        }))
+      };
+      return result;
+    }, {});
+  }
+
   function normalizePoint(point, fallbackName, allowIncomplete = false) {
     if (!point) {
       return allowIncomplete ? { name: fallbackName || '', lng: null, lat: null, transportMode: 'drive', labelOffset: {x: 0, y: 0} } : null;
@@ -65,7 +99,7 @@
       to: normalizePoint(day.to, `第 ${index + 1} 天终点`, true)
     }));
     if (!next.days.length) next.days = structuredClone(defaultDays);
-    next.segmentCache = next.segmentCache && typeof next.segmentCache === 'object' ? next.segmentCache : {};
+    next.segmentCache = normalizeSegmentCache(next.segmentCache);
     return next;
   }
 

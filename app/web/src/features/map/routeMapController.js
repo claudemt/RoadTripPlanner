@@ -28,6 +28,17 @@
       if (provider) provider.setLayer(layer);
     }
 
+    function normalizePathPoint(point) {
+      const lng = Array.isArray(point) ? Number(point[0]) : Number(point?.lng);
+      const lat = Array.isArray(point) ? Number(point[1]) : Number(point?.lat);
+      return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
+    }
+
+    function normalizePath(path) {
+      if (!Array.isArray(path)) return [];
+      return path.map(normalizePathPoint).filter(Boolean);
+    }
+
     function render({route, segmentResults, currentRouteView, fit = true, onMarkerClick, onLabelDrag}) {
       if (!provider) return;
       provider.clearOverlays();
@@ -53,22 +64,24 @@
             onLabelDrag: (labelOffset) => onLabelDrag?.({item, dayIndex, labelOffset}),
             onClick: () => onMarkerClick?.({item, dayIndex})
           });
-          overlays.push(marker);
-          pointCount += 1;
+          if (marker) {
+            overlays.push(marker);
+            pointCount += 1;
+          }
         });
       });
 
       segmentResults.forEach((dayResult, dayIndex) => {
         if (currentRouteView !== 'all' && Number(currentRouteView) !== dayIndex) return;
         (dayResult.segments || []).forEach((segment) => {
-          if (!segment.path?.length) return;
-          const path = segment.path.filter(([lng, lat]) => Number.isFinite(Number(lng)) && Number.isFinite(Number(lat)));
+          const path = normalizePath(segment.path);
           if (path.length < 2) return;
-          overlays.push(provider.addPolyline({
+          const polyline = provider.addPolyline({
             path,
             color: routeColors[dayIndex % routeColors.length],
             error: Boolean(segment.error)
-          }));
+          });
+          if (polyline) overlays.push(polyline);
         });
       });
 
@@ -108,7 +121,16 @@
               throw error;
             }
           }
-          segments.push({from: from.name, to: to.name, mode, ...result});
+          segments.push({
+            from: from.name,
+            to: to.name,
+            mode,
+            distance: Number(result?.distance) || 0,
+            duration: Number(result?.duration) || 0,
+            path: normalizePath(result?.path),
+            error: String(result?.error || ''),
+            fallback: Boolean(result?.fallback)
+          });
         } catch (error) {
           segments.push({
             from: from.name,
@@ -116,7 +138,7 @@
             mode,
             distance: 0,
             duration: 0,
-            path: [[from.lng, from.lat], [to.lng, to.lat]],
+            path: normalizePath([[from.lng, from.lat], [to.lng, to.lat]]),
             error: error.message || '路线计算失败',
             fallback: true
           });
