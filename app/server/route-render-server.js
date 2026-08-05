@@ -2251,6 +2251,20 @@ const archivePayload = (payload, routeRoot, identity) => {
   let manualMd = null;
   let manualText = '';
 
+  for (const file of [
+    path.join(dir, `${name}.mp4`),
+    path.join(dir, `${name}.render.mp4`),
+    path.join(dir, `${name}.route-map.png`),
+    path.join(dir, `${name}.travel.md`),
+    path.join(dir, `${name}.travel.pdf`),
+    path.join(dir, `${name}.mp4-data.json`),
+    path.join(dir, `${name}.route.json`),
+  ]) {
+    try {
+      fs.rmSync(file, {force: true});
+    } catch (_) {}
+  }
+
   if (routeData) writeFileAtomic(path.join(dir, `${name}.route.json`), JSON.stringify(toBasicRouteData(routeData), null, 2));
   if (videoData) {
     writeFileAtomic(path.join(dir, `${name}.mp4-data.json`), JSON.stringify(videoData, null, 2));
@@ -2728,7 +2742,6 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
       videoData: {
         ...baseVideoData,
         renderMode: 'overview',
-        ...(mapBgImage ? {staticMapImage: toPublicAssetPath(mapBgImage)} : {}),
       },
       output: archived.routeMapImage,
       config: payload.config,

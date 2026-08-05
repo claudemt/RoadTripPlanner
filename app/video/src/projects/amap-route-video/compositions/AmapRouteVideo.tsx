@@ -48,7 +48,7 @@ const pointColor = (point: VideoPoint, fallback: string) => {
   return fallback;
 };
 
-const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; delay?: number}> = ({point, x, y, color, visible, labelMode, delay = 0}) => {
+const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; delay?: number}> = ({point, x, y, color, visible, labelMode, labelText, delay = 0}) => {
   const frame = useCurrentFrame();
   const {width, height} = useVideoConfig();
   const pop = spring({frame: Math.max(0, frame - delay), fps: 30, config: {damping: 12, stiffness: 130}});
@@ -84,7 +84,7 @@ const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: str
             textShadow: '0 1px 0 rgba(255,255,255,.9)',
           }}
         >
-          {point.name}
+          {labelText || point.name}
         </div>
       ) : null}
     </div>
@@ -251,13 +251,25 @@ const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | nul
       {data.days.map((day, dayIndex) => {
         const thresholds = cumulativePointProgress(day, camera.project);
         let labelMode: LabelMode = 'none';
-        if (activeDayIndex === null) labelMode = 'endpoints';
+        if (activeDayIndex === null) labelMode = 'all';
         else if (dayIndex < activeDayIndex) labelMode = 'endpoints';
         else if (dayIndex === activeDayIndex) labelMode = 'all';
         return day.points.map((point, pointIndex) => {
           const {x, y} = camera.project([point.lng, point.lat]);
           const visible = activeDayIndex === null || dayIndex < activeDayIndex || (dayIndex === activeDayIndex && thresholds[pointIndex] <= activeProgress + 0.015);
-          return <PointMarker key={`${dayIndex}-${pointIndex}-${point.name}`} point={point} x={x} y={y} color={pointColor(point, day.color)} visible={visible} labelMode={labelMode} delay={pointIndex * 4} />;
+          return (
+            <PointMarker
+              key={`${dayIndex}-${pointIndex}-${point.name}`}
+              point={point}
+              x={x}
+              y={y}
+              color={pointColor(point, day.color)}
+              visible={visible}
+              labelMode={labelMode}
+              labelText={`D${dayIndex + 1}-${point.role} ${point.name}`}
+              delay={pointIndex * 4}
+            />
+          );
         });
       })}
     </>

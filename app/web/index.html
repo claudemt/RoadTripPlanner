@@ -451,24 +451,19 @@
     </div>
   </div>
 
-  <div class="modal" id="exportModal">
-    <div class="modal-card">
-      <div class="modal-head">
-        <strong>导出</strong>
-        <button class="small" id="exportCancelBtn">关闭</button>
+  <div class="export-dock" id="exportTaskDock" hidden>
+    <button class="export-dock-handle" id="exportDockToggleBtn" type="button" title="导出任务">
+      <span id="exportDockHandleText">导出</span>
+    </button>
+    <div class="export-dock-panel">
+      <div class="export-dock-head">
+        <strong>后台导出</strong>
+        <button class="small" id="exportDockCollapseBtn" type="button">收起</button>
       </div>
-      <div class="modal-body">
-        <div id="exportTaskPanel" class="hint" style="display:none;margin-top:0;border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.10)">
-          <div id="exportTaskStatus">已有导出任务。</div>
-          <div class="toolbar toolbar-bare">
-            <button id="exportStopBtn" class="small" type="button">终止当前任务</button>
-          </div>
-        </div>
-        <div class="toolbar toolbar-bare">
-          <button class="primary" id="exportConfirmBtn">导出</button>
-          <button id="exportCancelBtn2">取消</button>
-        </div>
-      </div>
+      <div id="exportTaskStatus" class="export-dock-status">等待导出任务。</div>
+      <div class="export-dock-progress"><span id="exportDockProgressBar"></span></div>
+      <div id="exportDockDetail" class="export-dock-detail"></div>
+      <button id="exportStopBtn" class="small danger" type="button">终止当前任务</button>
     </div>
   </div>
 

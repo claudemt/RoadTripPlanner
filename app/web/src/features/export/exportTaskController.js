@@ -1,6 +1,9 @@
 (function () {
   function create({el, localService, toast}) {
-    let modalPollingTimer = null;
+    let pollingTimer = null;
+    let hideTimer = null;
+    let dockOpen = false;
+    let pollingStartedAt = 0;
 
     function isActive(state) {
       return Boolean(state?.rendering || state?.progress?.active);
@@ -12,48 +15,78 @@
       return data;
     }
 
-    function renderPanel(state) {
-      const panel = el('exportTaskPanel');
-      if (!panel) return;
+    function setDockOpen(open) {
+      dockOpen = Boolean(open);
+      el('exportTaskDock')?.classList.toggle('open', dockOpen);
+    }
+
+    function renderDock(state, {keepVisible = false} = {}) {
+      const dock = el('exportTaskDock');
+      if (!dock) return;
       const progress = state?.progress || {};
-      if (!isActive(state)) {
-        panel.style.display = 'none';
-        el('exportConfirmBtn').textContent = '导出';
+      const active = isActive(state);
+      const done = Boolean(progress.done || progress.error);
+      const visible = active || done || keepVisible;
+      dock.hidden = !visible;
+      dock.classList.toggle('active', active);
+      dock.classList.toggle('error', Boolean(progress.error));
+      dock.classList.toggle('done', done && !progress.error);
+      if (!visible) {
+        setDockOpen(false);
         return;
       }
-      const percent = Number.isFinite(Number(progress.percent)) ? `${Math.round(Number(progress.percent))}%` : '';
-      const phase = progress.phase || '导出中';
+      const value = Number.isFinite(Number(progress.percent)) ? Math.max(0, Math.min(100, Math.round(Number(progress.percent)))) : 0;
+      const percent = value ? `${value}%` : '';
       const message = progress.message || '导出任务正在进行';
-      el('exportTaskStatus').textContent = `已有导出任务：${message}${percent ? ` · ${percent}` : ''} · ${phase}`;
-      el('exportConfirmBtn').textContent = '终止并导出';
-      panel.style.display = 'block';
+      el('exportTaskStatus').textContent = progress.error
+        ? `导出失败：${progress.error}`
+        : `${message}${percent ? ` · ${percent}` : ''}`;
+      el('exportDockHandleText').textContent = active ? (percent || '导出') : progress.error ? '失败' : '完成';
+      el('exportDockProgressBar').style.width = `${value}%`;
+      el('exportDockDetail').textContent = progress.phase ? `阶段：${progress.phase}` : '';
+      dock.classList.toggle('open', dockOpen);
     }
 
-    async function refreshPanel() {
+    async function refreshDock() {
       try {
-        renderPanel(await fetchState());
+        const state = await fetchState();
+        renderDock(state);
+        if (!isActive(state)) {
+          const progress = state?.progress || {};
+          const starting = !progress.done && Date.now() - pollingStartedAt < 8000;
+          if (starting) return;
+          stopPolling();
+          clearTimeout(hideTimer);
+          hideTimer = setTimeout(() => {
+            if (!dockOpen) renderDock({progress: {phase: 'idle'}});
+          }, 10000);
+        }
       } catch (_) {
-        const panel = el('exportTaskPanel');
-        if (panel) panel.style.display = 'none';
+        if (Date.now() - pollingStartedAt < 8000) return;
+        renderDock({progress: {phase: 'idle'}});
       }
     }
 
-    function startModalPolling() {
-      stopModalPolling();
-      refreshPanel();
-      modalPollingTimer = setInterval(refreshPanel, 1000);
+    function startPolling({open = false} = {}) {
+      stopPolling();
+      clearTimeout(hideTimer);
+      pollingStartedAt = Date.now();
+      setDockOpen(open);
+      renderDock({rendering: true, progress: {active: true, phase: 'start', message: '正在准备导出…', percent: 1}}, {keepVisible: true});
+      refreshDock();
+      pollingTimer = setInterval(refreshDock, 1000);
     }
 
-    function stopModalPolling() {
-      if (modalPollingTimer) clearInterval(modalPollingTimer);
-      modalPollingTimer = null;
+    function stopPolling() {
+      if (pollingTimer) clearInterval(pollingTimer);
+      pollingTimer = null;
     }
 
     async function waitForIdle(timeoutMs = 15000) {
       const started = Date.now();
       while (Date.now() - started < timeoutMs) {
         const state = await fetchState();
-        renderPanel(state);
+        renderDock(state);
         if (!isActive(state)) return state;
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
@@ -66,24 +99,31 @@
       if (!response.ok || !result.ok) throw new Error(result.message || '终止导出失败');
       if (!result.cancelled) {
         const state = await fetchState();
-        renderPanel(state);
+        renderDock(state);
         if (!silent) toast(result.message || '当前没有可终止的导出任务。');
         return state;
       }
       const state = await waitForIdle();
-      renderPanel(state);
+      renderDock(state, {keepVisible: true});
       if (!silent) toast('已终止当前导出任务。');
       return state;
+    }
+
+    function bind() {
+      el('exportDockToggleBtn')?.addEventListener('click', () => setDockOpen(!dockOpen));
+      el('exportDockCollapseBtn')?.addEventListener('click', () => setDockOpen(false));
+      el('exportStopBtn')?.addEventListener('click', () => cancel().catch((error) => toast('终止导出失败：' + error.message)));
     }
 
     return {
       isActive,
       fetchState,
-      renderPanel,
-      startModalPolling,
-      stopModalPolling,
+      renderDock,
+      startPolling,
+      stopPolling,
       waitForIdle,
-      cancel
+      cancel,
+      bind
     };
   }
 

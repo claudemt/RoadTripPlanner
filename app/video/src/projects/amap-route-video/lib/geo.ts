@@ -53,11 +53,12 @@ export const computeCamera = (data: RouteVideoData, width: number, height: numbe
   const worldW0 = Math.max(0.0001, maxX0 - minX0);
   const worldH0 = Math.max(0.0001, maxY0 - minY0);
 
-  const paddingX = 230;
+  const overviewMode = data.renderMode === 'overview';
+  const paddingX = overviewMode ? Math.max(140, width * 0.075) : 230;
   // 视频顶部有一条信息横幅。这里给地图取景区额外留出上边距，
   // 并把地图中心同步下移，避免路线、点位和光点被横幅遮住。
-  const paddingTop = 270;
-  const paddingBottom = 128;
+  const paddingTop = overviewMode ? Math.max(120, height * 0.08) : 270;
+  const paddingBottom = overviewMode ? Math.max(120, height * 0.08) : 128;
   const zoomX = Math.log2((width - paddingX * 2) / worldW0);
   const zoomY = Math.log2((height - paddingTop - paddingBottom) / worldH0);
   const zoom = Math.round(clamp(Math.min(zoomX, zoomY), MIN_ZOOM, MAX_ZOOM) * 10) / 10;

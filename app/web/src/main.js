@@ -56,9 +56,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     const {
       toast,
       setLoading,
-      hideLoading,
-      startExportProgressPolling,
-      stopExportProgressPolling
+      hideLoading
     } = feedback;
     const scenicController = window.ScenicController.create({
       el,
@@ -89,13 +87,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     window.accountOpenProfile = (email) => communityController.openProfile(email)
       .catch((error) => toast('读取个人介绍失败：' + error.message));
     const exportTasks = window.ExportTaskController.create({el, localService, toast});
-    const isExportActive = exportTasks.isActive;
-    const fetchExportTaskState = exportTasks.fetchState;
-    const renderExportTaskPanel = exportTasks.renderPanel;
-    const startExportModalPolling = exportTasks.startModalPolling;
-    const stopExportModalPolling = exportTasks.stopModalPolling;
-    const waitForExportIdle = exportTasks.waitForIdle;
-    const cancelCurrentExportTask = exportTasks.cancel;
+    const renderExportTaskDock = exportTasks.renderDock;
+    const startExportTaskPolling = exportTasks.startPolling;
     const routeMap = window.RouteMapController.create({
       routeColors: ROUTE_COLORS,
       getDayPoints,
@@ -332,7 +325,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (el('setupTestBtn')) el('setupTestBtn').onclick = () => testAmapConfigFromInputs('setupKeyInput', 'setupSecurityInput', 'setupStatus');
       el('newRouteBtn').onclick = openNewRouteModal;
       el('calcBtn').onclick = () => calculateRoute();
-      el('exportBtn').onclick = openExportModal;
+      el('exportBtn').onclick = () => exportCurrentRoute();
       bindNewRouteModal();
       bindRouteLibraryControls();
       bindAccountControls();
@@ -345,7 +338,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         setMapLayer(next);
         toast(`地图类型：${next === 'standard' ? '标准' : next === 'satellite' ? '卫星' : '卫星+道路'}`);
       };
-      bindExportModal();
+      exportTasks.bind();
       el('spotCloseBtn').onclick = scenicController.closeSpotPanel;
       el('imageLightbox').onclick = scenicController.closeLightbox;
       el('routeSelect').onchange = selectRouteFromDropdown;
@@ -371,7 +364,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       dialogs.register('pointModal', closePointEditor);
       dialogs.register('newRouteModal', closeNewRouteModal);
       dialogs.register('routeLibraryModal', closeRouteLibrary);
-      dialogs.register('exportModal', closeExportModal);
       dialogs.register('setupOverlay', closeSetupOverlay);
       dialogs.bind();
       document.addEventListener('click', (e) => {
@@ -817,42 +809,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       `;
       const configButton = el('mapFailureConfigBtn');
       if (configButton) configButton.onclick = () => openSetupOverlay('请检查 Key、安全密钥和域名白名单。');
-    }
-
-    function bindExportModal() {
-      if (!el('exportModal')) return;
-      el('exportCancelBtn').onclick = () => dialogs.close('exportModal');
-      el('exportCancelBtn2').onclick = () => dialogs.close('exportModal');
-      el('exportStopBtn').onclick = () => cancelCurrentExportTask();
-      el('exportConfirmBtn').onclick = async () => {
-        try {
-          const state = await fetchExportTaskState();
-          if (isExportActive(state)) {
-            if (!confirm('已有导出任务正在进行。要终止它并开始新的导出吗？')) return;
-            await cancelCurrentExportTask({silent: true});
-            await waitForExportIdle();
-          }
-        } catch (error) {
-          toast('读取导出任务失败：' + error.message);
-          return;
-        }
-        closeExportModal();
-        exportCurrentRoute();
-      };
-    }
-
-    function openExportModal() {
-      if (!localService.capabilities?.serverExport) {
-        downloadCurrentRoute();
-        return;
-      }
-      openDialog('exportModal');
-      startExportModalPolling();
-    }
-
-    function closeExportModal() {
-      el('exportModal').classList.remove('open');
-      stopExportModalPolling();
     }
 
     async function saveAmapConfigFromInputs(keyId, securityId, statusId) {
@@ -1454,50 +1410,65 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       }
     }
 
-    async function buildVideoData() {
-      const missing = route.days.some((day, i) => {
-        const expected = getDayPoints(day).length - 1;
-        return !segmentResults[i] || !segmentResults[i].segments || segmentResults[i].segments.length < expected;
-      });
-      if (missing) {
-        if (!confirm('还有天数没有计算路线。是否先计算全程再导出 MP4 数据？')) return;
-        const oldView = currentRouteView;
-        currentRouteView = 'all';
-        await calculateRoute();
-        currentRouteView = oldView;
-        renderDaySelect();
+    async function buildVideoData({routeData = route, segmentData = segmentResults, mapLayer = currentMapLayer} = {}) {
+      const exportRoute = normalizeRoute(structuredClone(routeData));
+      const exportSegments = structuredClone(segmentData || []);
+      for (let dayIndex = 0; dayIndex < exportRoute.days.length; dayIndex += 1) {
+        const day = exportRoute.days[dayIndex];
+        const expected = Math.max(0, getDayPoints(day).filter((item) => isPointReady(item.point)).length - 1);
+        if (!exportSegments[dayIndex]) exportSegments[dayIndex] = {segments: []};
+        if (exportSegments[dayIndex].segments?.length >= expected) continue;
+        exportSegments[dayIndex] = {segments: routeMap.isReady() ? await routeMap.calculateDaySegments(day) : []};
       }
       return videoDataBuilder.build({
-        route,
-        segmentResults,
-        currentMapLayer,
+        route: exportRoute,
+        segmentResults: exportSegments,
+        currentMapLayer: mapLayer,
         ensureScenicInfo
       });
     }
 
     async function exportCurrentRoute({renderVideo = true} = {}) {
-      if (busyActions.has('export-route')) return toast('正在导出，请稍候。');
+      if (!localService.capabilities?.serverExport) {
+        downloadCurrentRoute();
+        return;
+      }
+      if (busyActions.has('export-route')) {
+        startExportTaskPolling({open: true});
+        return toast('正在导出，请点击右侧任务条查看进度。');
+      }
       busyActions.add('export-route');
-      const restoreButton = setButtonBusy('exportConfirmBtn', true, '导出中…');
-      startExportProgressPolling();
+      const routeSnapshot = getEditableRoute(route);
+      const segmentSnapshot = structuredClone(segmentResults || []);
+      const mapLayerSnapshot = currentMapLayer;
+      const configSnapshot = {
+        key: window.AMAP_PLANNER_CONFIG?.key || '',
+        securityJsCode: window.AMAP_PLANNER_CONFIG?.securityJsCode || ''
+      };
+      const restoreButton = setButtonBusy('exportBtn', true, '导出中');
+      let serverRequestStarted = false;
       try {
         saveRoute(false);
-        const videoData = await buildVideoData();
-        setLoading('正在上传导出数据…', {percent: 8, detail: '准备'});
-        const { response, data: result } = await localService.exportRoute({
-          routeData: route,
+        renderExportTaskDock({rendering: true, progress: {active: true, phase: 'prepare', message: '正在整理导出数据…', percent: 2}}, {keepVisible: true});
+        const videoData = await buildVideoData({
+          routeData: routeSnapshot,
+          segmentData: segmentSnapshot,
+          mapLayer: mapLayerSnapshot
+        });
+        const exportRequest = localService.exportRoute({
+          routeData: routeSnapshot,
           videoData,
           renderVideo,
-          mapLayer: currentMapLayer,
-          config: {
-            key: window.AMAP_PLANNER_CONFIG?.key || '',
-            securityJsCode: window.AMAP_PLANNER_CONFIG?.securityJsCode || ''
-          }
+          mapLayer: mapLayerSnapshot,
+          config: configSnapshot
         });
+        serverRequestStarted = true;
+        startExportTaskPolling({open: false});
+        const { response, data: result } = await exportRequest;
         if (response.status === 409 && result?.code === 'EXPORT_RUNNING') {
-          renderExportTaskPanel({rendering: true, progress: result.progress || {}});
-          openExportModal();
-          toast('已有导出任务，可终止后重新导出。');
+          renderExportTaskDock({rendering: true, progress: result.progress || {}}, {keepVisible: true});
+          startExportTaskPolling({open: true});
+          toast('已有导出任务正在后台进行。');
           return;
         }
         if (response.status === 409 && result?.code === 'EXPORT_CANCELLED') {
@@ -1509,8 +1480,6 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           toast(result.job?.render_video ? '全量导出已进入队列，视频会在后台生成。' : '导出任务已进入队列。');
           return;
         }
-        stopExportProgressPolling();
-        setLoading('正在同步导出结果…', {detail: '整理路线库'});
         let refreshError = null;
         try {
           await refreshArchivedRoutes();
@@ -1530,11 +1499,16 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         toast(warnings ? `已导出 ${parts}（${warnings}）` : `已导出：${parts}`);
         if (refreshError) toast('导出已完成，但路线库同步失败：' + refreshError.message);
       } catch (error) {
+        if (!serverRequestStarted) {
+          renderExportTaskDock({progress: {phase: 'idle'}});
+        } else {
+          renderExportTaskDock({rendering: false, progress: {active: false, done: true, error: error.message, phase: 'error', message: '导出失败', percent: 100}}, {keepVisible: true});
+          startExportTaskPolling({open: true});
+        }
         toast('导出失败：' + error.message);
       } finally {
         restoreButton();
         busyActions.delete('export-route');
-        setTimeout(hideLoading, 500);
       }
     }
 

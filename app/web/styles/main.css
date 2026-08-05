@@ -1722,6 +1722,92 @@
     }
     .loading-detail.show { display: block; }
 
+    .export-dock {
+      position: fixed;
+      right: 14px;
+      bottom: 18px;
+      z-index: 52000;
+      width: min(330px, calc(100vw - 64px));
+      transform: translateX(calc(100% - 28px));
+      transition: transform var(--dur-base) var(--ease-out);
+      pointer-events: none;
+    }
+    .export-dock.open { transform: translateX(0); }
+    .export-dock-handle {
+      position: absolute;
+      left: -34px;
+      top: 16px;
+      width: 38px;
+      min-width: 38px;
+      height: 78px;
+      padding: 0;
+      border-radius: 14px 0 0 14px;
+      writing-mode: vertical-rl;
+      letter-spacing: 0;
+      font-size: 12px;
+      background: var(--primary);
+      color: #fffaf0;
+      border-color: rgba(93,49,22,.65);
+      box-shadow: 0 10px 26px rgba(78, 45, 24, .26);
+      pointer-events: auto;
+    }
+    .export-dock.active .export-dock-handle::after {
+      content: "";
+      position: absolute;
+      right: 7px;
+      top: 7px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #fffaf0;
+      box-shadow: 0 0 0 4px rgba(255,250,240,.28);
+    }
+    .export-dock-panel {
+      pointer-events: auto;
+      display: grid;
+      gap: 9px;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(255,250,240,.97);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg);
+    }
+    .export-dock-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .export-dock-status {
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .export-dock-progress {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e7d9c4;
+      border: 1px solid rgba(111,89,58,.18);
+    }
+    .export-dock-progress span {
+      display: block;
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--primary), #f0a06a, var(--primary));
+      background-size: 200% 100%;
+      animation: shimmer 1.6s linear infinite;
+      transition: width var(--dur-slow) ease;
+    }
+    .export-dock-detail {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .export-dock:not(.active) #exportStopBtn { display: none; }
+
     .route-label-layer {
       position: absolute;
       inset: 0;

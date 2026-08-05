@@ -1,8 +1,6 @@
 (function () {
   function create({el, localService}) {
     let toastTimer = null;
-    let exportProgressTimer = null;
-    let fallbackExportPercent = 0;
 
     function toast(message) {
       clearTimeout(toastTimer);
@@ -38,13 +36,7 @@
       }
     }
 
-    function stopExportProgressPolling() {
-      if (exportProgressTimer) clearInterval(exportProgressTimer);
-      exportProgressTimer = null;
-    }
-
     function hideLoading() {
-      stopExportProgressPolling();
       const loading = el('loading');
       if (!loading) return;
       loading.classList.remove('show');
@@ -55,33 +47,10 @@
       el('loadingDetail').textContent = '';
     }
 
-    function startExportProgressPolling() {
-      stopExportProgressPolling();
-      fallbackExportPercent = 2;
-      setLoading('正在准备导出…', {percent: fallbackExportPercent, detail: '准备'});
-      exportProgressTimer = setInterval(async () => {
-        fallbackExportPercent = Math.min(94, fallbackExportPercent + (fallbackExportPercent < 28 ? 2 : fallbackExportPercent < 80 ? 0.7 : 0.18));
-        try {
-          const {data} = await localService.getExportProgress();
-          const progress = data?.progress || {};
-          const serverPercent = Number(progress.percent);
-          if (Number.isFinite(serverPercent)) fallbackExportPercent = Math.max(fallbackExportPercent, serverPercent);
-          setLoading(progress.message || '正在导出…', {
-            percent: progress.done ? 100 : fallbackExportPercent,
-            detail: progress.phase || '导出中'
-          });
-        } catch (_) {
-          setLoading('正在导出…', {percent: fallbackExportPercent, detail: '本地服务处理中'});
-        }
-      }, 900);
-    }
-
     return {
       toast,
       setLoading,
-      hideLoading,
-      startExportProgressPolling,
-      stopExportProgressPolling
+      hideLoading
     };
   }
 
