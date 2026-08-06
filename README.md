@@ -10,6 +10,7 @@
 <p align="center">
   <a href="#-功能">功能</a> ·
   <a href="#-quick-start">快速上手</a> ·
+  <a href="#-脚本化调用">脚本化调用</a> ·
   <a href="#-部署">部署</a> ·
   <a href="#-导出产物">导出产物</a>
 </p>
@@ -47,6 +48,21 @@ cd ..
 ```
 
 打开 `http://127.0.0.1:6137`，即可开始规划路线并导出。
+
+---
+
+## 🤖 脚本化调用
+
+不想把时间浪费在重复点击上？直接用 CLI 或 `/api/v1` 批量创建路线、修改点位、维护景点、启动后台导出并下载完整产品：
+
+```powershell
+cd app
+npm run cli -- route create --file .\route.json
+npm run cli -- route export <route-id> --wait
+npm run cli -- route download <route-id> --out .\product.zip
+```
+
+完整命令、HTTP 接口、账号身份、批量调用和视频计时规则见 [脚本化接口手册](docs/cli_api.md)。
 
 ---
 

@@ -1856,6 +1856,120 @@ const getCloudRouteForDownload = async (routeId, identity) => {
   return data;
 };
 
+const getAccountRoute = async (routeId, identity) => {
+  const id = String(routeId || '').trim();
+  if (!id) {
+    const error = new Error('缺少路线 ID。');
+    error.status = 400;
+    throw error;
+  }
+  const supabase = getSupabaseClient();
+  if (supabase && identity?.email) return getCloudRouteForDownload(id, identity);
+  const item = listArchivedRoutes(getUserRouteRoot(identity))
+    .find((candidate) => candidate.routeData?.id === id || candidate.safeName === id);
+  if (!item?.routeData) {
+    const error = new Error('未找到这条路线。');
+    error.status = 404;
+    throw error;
+  }
+  return {
+    id: item.routeData.id || id,
+    name: item.name,
+    route_data: item.routeData,
+    map_layer: item.mapLayer || 'standard',
+  };
+};
+
+const buildScriptVideoData = (routeData, mapLayer = 'standard', override = null) => {
+  if (override && typeof override === 'object') return override;
+  const colors = ['#1677ff', '#16a34a', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
+  const days = (routeData?.days || []).map((day, dayIndex) => {
+    const points = [day.from, ...(day.waypoints || []), day.to]
+      .filter((point) => point && Number.isFinite(Number(point.lng)) && Number.isFinite(Number(point.lat)))
+      .map((point, pointIndex, all) => ({
+        name: String(point.name || ''),
+        lng: Number(point.lng),
+        lat: Number(point.lat),
+        role: pointIndex === 0 ? '起' : pointIndex === all.length - 1 ? '终' : String(pointIndex),
+        kind: pointIndex === 0 ? 'from' : pointIndex === all.length - 1 ? 'to' : 'waypoint',
+        transportMode: point.transportMode || 'drive',
+        labelOffset: point.labelOffset || {x: 0, y: 0},
+        scenic: point.useScenic === false ? null : point.scenic || null,
+      }));
+    const cached = routeData.segmentCache?.[dayIndex]?.segments || [];
+    const segments = points.slice(0, -1).map((from, index) => {
+      const to = points[index + 1];
+      const saved = cached[index] || {};
+      const path = Array.isArray(saved.path) && saved.path.length >= 2
+        ? saved.path
+        : [[from.lng, from.lat], [to.lng, to.lat]];
+      return {
+        from: from.name,
+        to: to.name,
+        mode: saved.mode || to.transportMode || 'drive',
+        distance: Number(saved.distance) || 0,
+        duration: Number(saved.duration) || 0,
+        path,
+        error: saved.error || '',
+      };
+    });
+    return {
+      title: day.title || `第 ${dayIndex + 1} 天`,
+      color: colors[dayIndex % colors.length],
+      points,
+      segments,
+    };
+  });
+  const allPoints = days.flatMap((day) => day.points);
+  const lngs = allPoints.map((point) => point.lng);
+  const lats = allPoints.map((point) => point.lat);
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    mapLayer,
+    renderSpeed: 1,
+    route: {id: routeData.id, name: routeData.name || '自驾路线'},
+    days,
+    summary: {
+      dayCount: days.length,
+      totalDistance: days.reduce((sum, day) => sum + day.segments.reduce((value, segment) => value + segment.distance, 0), 0),
+      totalDuration: days.reduce((sum, day) => sum + day.segments.reduce((value, segment) => value + segment.duration, 0), 0),
+      bounds: lngs.length ? [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)] : [0, 0, 0, 0],
+    },
+  };
+};
+
+const getRoutePointByPosition = (routeData, dayNumber, position) => {
+  const dayIndex = Number(dayNumber) - 1;
+  const day = routeData?.days?.[dayIndex];
+  if (!day) {
+    const error = new Error(`第 ${dayNumber} 天不存在。`);
+    error.status = 400;
+    throw error;
+  }
+  const value = String(position || '').trim().toLowerCase();
+  if (value === 'from') return day.from;
+  if (value === 'to') return day.to;
+  const match = value.match(/^waypoint:(\d+)$/);
+  if (match) {
+    const point = day.waypoints?.[Number(match[1]) - 1];
+    if (point) return point;
+  }
+  const error = new Error('点位位置无效，请使用 from、to 或 waypoint:1 这样的格式。');
+  error.status = 400;
+  throw error;
+};
+
+const patchRoutePoint = (routeData, payload = {}) => {
+  const next = structuredClone(routeData);
+  const point = getRoutePointByPosition(next, payload.day, payload.position);
+  const source = payload.point && typeof payload.point === 'object' ? payload.point : payload;
+  ['name', 'lng', 'lat', 'transportMode', 'useScenic', 'labelOffset'].forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(source, key)) point[key] = source[key];
+  });
+  return validateRouteData(next);
+};
+
 const getPublishedRouteForDownload = async (publishedId) => {
   const supabase = requireSupabaseClient();
   const {data, error} = await supabase
@@ -2870,6 +2984,28 @@ const runManualExportJob = async (task, payload, identity) => {
   }
 };
 
+const queueManualExportTask = (payload, identity) => {
+  if (rendering) {
+    const error = new Error('已有导出任务进行中，请稍后再试');
+    error.status = 409;
+    error.code = 'EXPORT_RUNNING';
+    throw error;
+  }
+  if (!payload?.videoData) throw new Error('缺少 videoData');
+  if (payload.routeData || payload.route) validateRouteData(payload.routeData || payload.route);
+  const task = createExportTask(identity.email);
+  latestExportsByOwner.set(identity.email, task);
+  activeExport = task;
+  rendering = true;
+  void runManualExportJob(task, payload, identity);
+  return {
+    ok: true,
+    queued: true,
+    taskId: task.id,
+    message: '导出任务已在服务器后台启动。',
+  };
+};
+
 // 公共路线发布后，在后台生成完整产品（JSON/MD/PNG/PDF/MP4/ZIP）。
 // 与手动导出共用单飞渲染锁（rendering/activeExport），队列逐个执行；任务不可取消。
 // 注意：服务器重启会丢失内存队列，未完成的任务保留基础内容（routeJson + 发布时 zip）。
@@ -3072,69 +3208,6 @@ const server = http.createServer(async (req, res) => {
         return send(res, Number(error.status) || 500, {ok: false, message: error.message});
       }
     }
-    if (req.method === 'GET' && url.pathname === '/api/scenic') {
-      const name = url.searchParams.get('name') || '';
-      const result = await getCloudScenic(name);
-      return send(res, 200, result || {ok: true, spot: null});
-    }
-    if (req.method === 'POST' && url.pathname === '/api/scenic') {
-      try {
-        const result = await saveCloudScenic(await readBody(req, 70 * 1024 * 1024), identity);
-        return send(res, 200, result);
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
-    if (req.method === 'GET' && url.pathname === '/api/scenes') {
-      const scenes = await listCloudScenes();
-      return send(res, 200, {ok: true, scenes: scenes || []});
-    }
-    if (req.method === 'GET' && url.pathname === '/api/user-scenes') {
-      try {
-        const scenes = await listUserScenes(identity);
-        return send(res, 200, {ok: true, scenes});
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
-    if (req.method === 'POST' && url.pathname === '/api/user-scenes') {
-      try {
-        const result = await saveUserScene(await readBody(req, 70 * 1024 * 1024), identity);
-        return send(res, 200, result);
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
-    if (req.method === 'POST' && url.pathname === '/api/user-scenes/import') {
-      try {
-        const payload = await readBody(req);
-        const result = await importCloudScene(payload?.name, identity);
-        return send(res, 200, result);
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
-    if (req.method === 'DELETE' && url.pathname.startsWith('/api/user-scenes/')) {
-      try {
-        const sceneId = decodeURIComponent(url.pathname.slice('/api/user-scenes/'.length));
-        const result = await deleteUserScene(sceneId, identity);
-        return send(res, 200, result);
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
-    if (req.method === 'GET' && url.pathname === '/api/scenic-revisions') {
-      const revisions = await listCloudSceneRevisions(url.searchParams.get('name') || '');
-      return send(res, 200, {ok: true, revisions: revisions || []});
-    }
-    if (req.method === 'DELETE' && url.pathname === '/api/scenic') {
-      try {
-        const result = await deleteCloudScenic(url.searchParams.get('name') || '', identity);
-        return send(res, 200, result);
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
     if (req.method === 'GET' && url.pathname === '/api/admin/summary') {
       try {
         const result = await getAdminSummary(identity);
@@ -3143,123 +3216,294 @@ const server = http.createServer(async (req, res) => {
         return send(res, Number(error.status) || 500, {ok: false, message: error.message});
       }
     }
-    if (req.method === 'GET' && url.pathname === '/api/routes') {
+    if (req.method === 'GET' && url.pathname === '/api/v1') {
+      return send(res, 200, {
+        ok: true,
+        version: '1',
+        account: identity.email,
+        endpoints: {
+          account: '/api/v1/account',
+          routes: '/api/v1/routes',
+          route: '/api/v1/routes/:id',
+          routePoints: '/api/v1/routes/:id/points',
+          routeExport: '/api/v1/routes/:id/export',
+          exportStatus: '/api/v1/exports/:taskId',
+          exportProgress: '/api/v1/export-progress',
+          exportCancel: '/api/v1/exports/:taskId/cancel',
+          routeZip: '/api/v1/routes/:id/product.zip',
+          publishedRoutes: '/api/v1/published-routes',
+          publicSpots: '/api/v1/spots/public',
+          privateSpots: '/api/v1/spots/private',
+        },
+      });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/account') {
+      return send(res, 200, {
+        ok: true,
+        email: identity.email,
+        id: identity.id,
+        source: identity.source,
+        isAdmin: isAdminIdentity(identity),
+        capabilities: {
+          cloudRoutes: isSupabaseConfigured(),
+          publishedRoutes: isSupabaseConfigured(),
+          serverExport: true,
+          sharedScenes: true,
+        },
+      });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/routes') {
       const cloudRoutes = await listCloudRoutes(identity);
       if (cloudRoutes) return send(res, 200, {ok: true, routes: cloudRoutes});
       const routes = listArchivedRoutes(getUserRouteRoot(identity)).map((item) => ({
+        id: item.routeData?.id || item.safeName,
         name: item.name,
         safeName: item.safeName,
         fileBase: item.fileBase,
         assetPath: item.assetPath,
-        dir: item.dir,
-        archivedAt: item.archivedAt,
         updatedAt: item.updatedAt,
         mapLayer: item.mapLayer,
-        routeJson: item.routeJson,
-        videoJson: item.videoJson,
-        mp4: item.mp4,
-        manualMd: item.manualMd,
-        manualPdf: item.manualPdf,
-        mapImage: item.mapImage,
         routeData: item.routeData,
+        assets: {
+          mp4: item.mp4,
+          manualPdf: item.manualPdf,
+          mapImage: item.mapImage,
+          productZip: false,
+        },
       }));
       return send(res, 200, {ok: true, routes});
     }
-    if (req.method === 'GET' && url.pathname === '/api/published-routes') {
-      const routes = await listPublishedRoutes();
-      return send(res, 200, {ok: true, routes: routes || []});
-    }
-    if (req.method === 'GET' && url.pathname.startsWith('/api/routes/') && url.pathname.endsWith('/product.zip')) {
+    if (req.method === 'POST' && url.pathname === '/api/v1/routes') {
       try {
-        const routeId = decodeURIComponent(url.pathname.slice('/api/routes/'.length, -'/product.zip'.length));
-        const routeRow = await getCloudRouteForDownload(routeId, identity);
-        return sendZipDownload(res, routeRow);
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
-    if (req.method === 'GET' && url.pathname.startsWith('/api/published-routes/') && url.pathname.endsWith('/product.zip')) {
-      try {
-        const publishedId = decodeURIComponent(url.pathname.slice('/api/published-routes/'.length, -'/product.zip'.length));
-        const routeRow = await getPublishedRouteForDownload(publishedId);
-        return sendZipDownload(res, routeRow);
-      } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
-      }
-    }
-    if (req.method === 'POST' && url.pathname === '/api/routes') {
-      const payload = await readBody(req, 8 * 1024 * 1024);
-      const result = await saveCloudRoute(payload, identity);
-      return send(res, 200, result);
-    }
-    if (req.method === 'POST' && url.pathname === '/api/published-routes') {
-      const payload = await readBody(req);
-      try {
-        const result = await publishCloudRoute(payload, identity);
+        const result = await saveCloudRoute(await readBody(req, 8 * 1024 * 1024), identity);
         return send(res, 200, result);
       } catch (error) {
-        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
       }
     }
-    if (req.method === 'POST' && url.pathname.startsWith('/api/published-routes/') && url.pathname.endsWith('/import')) {
-      const publishedId = decodeURIComponent(url.pathname.slice('/api/published-routes/'.length, -'/import'.length));
-      const result = await importPublishedRoute(publishedId, identity);
-      return send(res, 200, result);
-    }
-    if (req.method === 'DELETE' && url.pathname.startsWith('/api/published-routes/')) {
-      const publishedId = decodeURIComponent(url.pathname.slice('/api/published-routes/'.length));
+    if (req.method === 'GET' && url.pathname.startsWith('/api/v1/routes/') && url.pathname.endsWith('/product.zip')) {
       try {
-        const result = await deletePublishedRoute(publishedId, identity);
-        return send(res, 200, result);
+        const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length, -'/product.zip'.length));
+        return sendZipDownload(res, await getAccountRoute(routeId, identity));
       } catch (error) {
         return send(res, Number(error.status) || 500, {ok: false, message: error.message});
       }
     }
-    if (req.method === 'DELETE' && url.pathname.startsWith('/api/routes/')) {
-      const routeId = decodeURIComponent(url.pathname.slice('/api/routes/'.length));
-      const result = await deleteCloudRoute(routeId, identity);
-      return send(res, 200, result);
+    if (req.method === 'POST' && url.pathname.startsWith('/api/v1/routes/') && url.pathname.endsWith('/export')) {
+      try {
+        const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length, -'/export'.length));
+        const payload = await readBody(req, 220 * 1024 * 1024);
+        const suppliedRoute = payload.routeData || payload.route;
+        const row = suppliedRoute
+          ? {
+            id: routeId || suppliedRoute.id,
+            name: suppliedRoute.name,
+            route_data: suppliedRoute,
+            map_layer: payload.mapLayer || 'standard',
+          }
+          : await getAccountRoute(routeId, identity);
+        const routeData = structuredClone(row.route_data);
+        if (routeId && !routeData.id) routeData.id = routeId;
+        validateRouteData(routeData);
+        const mapLayer = String(payload.mapLayer || row.map_layer || 'standard').trim() || 'standard';
+        const exportPayload = {
+          routeData,
+          videoData: buildScriptVideoData(routeData, mapLayer, payload.videoData),
+          mapLayer,
+          renderVideo: payload.renderVideo !== false,
+          config: payload.config || {},
+        };
+        return send(res, 202, queueManualExportTask(exportPayload, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || (error.code === 'EXPORT_RUNNING' ? 409 : 400), {
+          ok: false,
+          code: error.code || undefined,
+          message: error.message,
+        });
+      }
     }
-    if (req.method === 'GET' && url.pathname === '/api/export-progress') {
+    if (req.method === 'GET' && url.pathname.startsWith('/api/v1/routes/')) {
+      try {
+        const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length));
+        const row = await getAccountRoute(routeId, identity);
+        return send(res, 200, {
+          ok: true,
+          route: {
+            id: row.id,
+            name: row.name,
+            mapLayer: row.map_layer || 'standard',
+            routeData: row.route_data,
+            assetUrls: await resolveRouteAssetUrls(row.route_data),
+          },
+        });
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'PUT' && url.pathname.startsWith('/api/v1/routes/')) {
+      try {
+        const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length));
+        const payload = await readBody(req, 8 * 1024 * 1024);
+        const routeData = structuredClone(payload.routeData || payload.route || payload);
+        routeData.id = routeId;
+        const result = await saveCloudRoute({routeData, mapLayer: payload.mapLayer}, identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'PATCH' && url.pathname.startsWith('/api/v1/routes/') && url.pathname.endsWith('/points')) {
+      try {
+        const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length, -'/points'.length));
+        const row = await getAccountRoute(routeId, identity);
+        const payload = await readBody(req, 256 * 1024);
+        const routeData = patchRoutePoint(row.route_data, payload);
+        const result = await saveCloudRoute({routeData, mapLayer: payload.mapLayer || row.map_layer}, identity);
+        return send(res, 200, result);
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/v1/routes/')) {
+      try {
+        const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length));
+        return send(res, 200, await deleteCloudRoute(routeId, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/export-progress') {
       return send(res, 200, getExportProgressForOwner(identity.email));
     }
-    if (req.method === 'POST' && url.pathname === '/api/export-cancel') {
-      if (activeExport?.publishJob) {
+    if (req.method === 'POST' && url.pathname === '/api/v1/export-cancel') {
+      if (activeExport?.publishJob && activeExport.ownerEmail === identity.email) {
         return send(res, 200, {...getExportProgressForOwner(identity.email), cancelled: false, message: '公共路线产品正在后台生成，暂不可取消'});
       }
       const cancelled = cancelActiveExport(identity.email);
-      if (!cancelled) {
-        return send(res, 200, {...getExportProgressForOwner(identity.email), cancelled: false, message: '当前没有可终止的导出任务'});
-      }
-      return send(res, 200, {...getExportProgressForOwner(identity.email), cancelled: true});
+      return send(res, 200, {
+        ...getExportProgressForOwner(identity.email),
+        cancelled,
+        message: cancelled ? undefined : '当前没有可终止的导出任务',
+      });
     }
-    if (req.method === 'POST' && url.pathname === '/api/export-route') {
-      if (rendering) return send(res, 409, {ok: false, code: 'EXPORT_RUNNING', message: '已有导出任务进行中，请稍后再试'});
-      const task = createExportTask(identity.email);
-      latestExportsByOwner.set(identity.email, task);
-      activeExport = task;
-      rendering = true;
+    if (req.method === 'POST' && url.pathname.startsWith('/api/v1/exports/') && url.pathname.endsWith('/cancel')) {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/v1/exports/'.length, -'/cancel'.length));
+      const task = latestExportsByOwner.get(identity.email);
+      if (!task || task.id !== taskId) return send(res, 404, {ok: false, message: '导出任务不存在或不属于当前账号。'});
+      if (task.publishJob) {
+        return send(res, 409, {...getExportProgressForOwner(identity.email), cancelled: false, message: '公共路线产品正在后台生成，暂不可取消'});
+      }
+      const cancelled = cancelActiveExport(identity.email);
+      return send(res, 200, {
+        ...getExportProgressForOwner(identity.email),
+        cancelled,
+        message: cancelled ? undefined : '当前没有可终止的导出任务',
+      });
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/api/v1/exports/')) {
+      const taskId = decodeURIComponent(url.pathname.slice('/api/v1/exports/'.length));
+      const state = getExportProgressForOwner(identity.email);
+      if (state.exportTaskId !== taskId) return send(res, 404, {ok: false, message: '导出任务不存在或不属于当前账号。'});
+      return send(res, 200, state);
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/published-routes') {
+      try {
+        return send(res, 200, {ok: true, routes: await listPublishedRoutes() || []});
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/api/v1/published-routes/') && url.pathname.endsWith('/product.zip')) {
+      try {
+        const publishedId = decodeURIComponent(url.pathname.slice('/api/v1/published-routes/'.length, -'/product.zip'.length));
+        return sendZipDownload(res, await getPublishedRouteForDownload(publishedId));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/v1/published-routes') {
+      try {
+        return send(res, 200, await publishCloudRoute(await readBody(req), identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname.startsWith('/api/v1/published-routes/') && url.pathname.endsWith('/import')) {
+      try {
+        const publishedId = decodeURIComponent(url.pathname.slice('/api/v1/published-routes/'.length, -'/import'.length));
+        return send(res, 200, await importPublishedRoute(publishedId, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/v1/published-routes/')) {
+      try {
+        const publishedId = decodeURIComponent(url.pathname.slice('/api/v1/published-routes/'.length));
+        return send(res, 200, await deletePublishedRoute(publishedId, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/spots/public') {
+      try {
+        const name = url.searchParams.get('name') || '';
+        if (name) return send(res, 200, await getCloudScenic(name) || {ok: true, spot: null});
+        const spots = await listCloudScenes() || [];
+        return send(res, 200, {ok: true, spots, scenes: spots});
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'PUT' && url.pathname === '/api/v1/spots/public') {
+      try {
+        return send(res, 200, await saveCloudScenic(await readBody(req, 70 * 1024 * 1024), identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'DELETE' && url.pathname === '/api/v1/spots/public') {
+      try {
+        return send(res, 200, await deleteCloudScenic(url.searchParams.get('name') || '', identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/spots/public/revisions') {
+      try {
+        return send(res, 200, {ok: true, revisions: await listCloudSceneRevisions(url.searchParams.get('name') || '')});
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/v1/spots/private') {
+      try {
+        const scenes = await listUserScenes(identity);
+        return send(res, 200, {ok: true, spots: scenes, scenes});
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'PUT' && url.pathname === '/api/v1/spots/private') {
+      try {
+        return send(res, 200, await saveUserScene(await readBody(req, 70 * 1024 * 1024), identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/v1/spots/private/import') {
       try {
         const payload = await readBody(req);
-        assertExportNotCancelled();
-        if (!payload?.videoData) throw new Error('缺少 videoData');
-        if (payload.routeData || payload.route) validateRouteData(payload.routeData || payload.route);
-        void runManualExportJob(task, payload, identity);
-        return send(res, 202, {
-          ok: true,
-          queued: true,
-          taskId: task.id,
-          message: '导出任务已在服务器后台启动。',
-        });
+        return send(res, 200, await importCloudScene(payload.name, identity));
       } catch (error) {
-        if (error?.code === 'EXPORT_CANCELLED') {
-          cancelExportProgress(error.message);
-          releaseExportTask();
-          return send(res, 409, {ok: false, cancelled: true, code: 'EXPORT_CANCELLED', message: error.message});
-        }
-        failExportProgress(error);
-        releaseExportTask();
-        return send(res, 500, {ok: false, message: error.message});
+        return send(res, Number(error.status) || 400, {ok: false, message: error.message});
+      }
+    }
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/v1/spots/private/')) {
+      try {
+        const sceneId = decodeURIComponent(url.pathname.slice('/api/v1/spots/private/'.length));
+        return send(res, 200, await deleteUserScene(sceneId, identity));
+      } catch (error) {
+        return send(res, Number(error.status) || 500, {ok: false, message: error.message});
       }
     }
     if (req.method === 'GET') return serveStatic(req, res, identity);

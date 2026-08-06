@@ -21,6 +21,7 @@
     const apiUrl = (path) => `${getServiceBase()}${path}`;
     const cachePrefix = `roadtrip-api-cache:${runtime.user?.id || runtime.user?.email || runtime.mode || 'anonymous'}:`;
     const pending = new Map();
+    let lastExportTaskId = null;
     const cacheKey = (path) => cachePrefix + path;
     const readCache = (path, maxAgeMs) => {
       try {
@@ -78,7 +79,7 @@
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload || {}),
     }).then((result) => {
-      if (result.response.ok) clearCache(['/api/routes', '/api/published-routes', '/api/scenic', '/api/scenes', '/api/user-scenes']);
+      if (result.response.ok) clearCache(['/api/v1/routes', '/api/v1/published-routes', '/api/v1/spots']);
       return result;
     });
     const capabilities = {
@@ -136,68 +137,82 @@
         return fetchJson(apiUrl(`/api/community/messages/${encodeURIComponent(messageId)}`), {method: 'DELETE'});
       },
       saveRoute(routeData, mapLayer) {
-        return postJson('/api/routes', {routeData, mapLayer});
+        return postJson('/api/v1/routes', {routeData, mapLayer});
       },
       deleteRoute(routeId) {
-        return fetchJson(apiUrl(`/api/routes/${encodeURIComponent(routeId)}`), {method: 'DELETE'}).then((result) => {
-          if (result.response.ok) clearCache(['/api/routes']);
+        return fetchJson(apiUrl(`/api/v1/routes/${encodeURIComponent(routeId)}`), {method: 'DELETE'}).then((result) => {
+          if (result.response.ok) clearCache(['/api/v1/routes']);
           return result;
         });
       },
       routeProductZipUrl(routeId) {
-        return apiUrl(`/api/routes/${encodeURIComponent(routeId)}/product.zip`);
+        return apiUrl(`/api/v1/routes/${encodeURIComponent(routeId)}/product.zip`);
       },
       publishedRouteProductZipUrl(routeId) {
-        return apiUrl(`/api/published-routes/${encodeURIComponent(routeId)}/product.zip`);
+        return apiUrl(`/api/v1/published-routes/${encodeURIComponent(routeId)}/product.zip`);
       },
       getScenic(name, options = {}) {
-        return cachedGet(`/api/scenic?name=${encodeURIComponent(name || '')}`, {ttl: 10 * 60 * 1000, ...options});
+        return cachedGet(`/api/v1/spots/public?name=${encodeURIComponent(name || '')}`, {ttl: 10 * 60 * 1000, ...options});
       },
       saveScenic(payload) {
-        return postJson('/api/scenic', payload);
+        return fetchJson(apiUrl('/api/v1/spots/public'), {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload || {}),
+        }).then((result) => {
+          if (result.response.ok) clearCache(['/api/v1/spots/public']);
+          return result;
+        });
       },
       listScenes() {
-        return cachedGet('/api/scenes', {ttl: 10 * 60 * 1000});
+        return cachedGet('/api/v1/spots/public', {ttl: 10 * 60 * 1000});
       },
       listUserScenes(options = {}) {
-        return cachedGet('/api/user-scenes', {ttl: 5 * 60 * 1000, ...options});
+        return cachedGet('/api/v1/spots/private', {ttl: 5 * 60 * 1000, ...options});
       },
       saveUserScene(payload) {
-        return postJson('/api/user-scenes', payload);
+        return fetchJson(apiUrl('/api/v1/spots/private'), {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload || {}),
+        }).then((result) => {
+          if (result.response.ok) clearCache(['/api/v1/spots/private']);
+          return result;
+        });
       },
       importScene(name) {
-        return postJson('/api/user-scenes/import', {name});
+        return postJson('/api/v1/spots/private/import', {name});
       },
       deleteUserScene(sceneId) {
-        return fetchJson(apiUrl(`/api/user-scenes/${encodeURIComponent(sceneId)}`), {method: 'DELETE'}).then((result) => {
-          if (result.response.ok) clearCache(['/api/scenic', '/api/scenes', '/api/user-scenes']);
+        return fetchJson(apiUrl(`/api/v1/spots/private/${encodeURIComponent(sceneId)}`), {method: 'DELETE'}).then((result) => {
+          if (result.response.ok) clearCache(['/api/v1/spots']);
           return result;
         });
       },
       listScenicRevisions(name) {
-        return fetchJson(apiUrl(`/api/scenic-revisions?name=${encodeURIComponent(name || '')}`));
+        return fetchJson(apiUrl(`/api/v1/spots/public/revisions?name=${encodeURIComponent(name || '')}`));
       },
       deleteScenic(name) {
-        return fetchJson(apiUrl(`/api/scenic?name=${encodeURIComponent(name || '')}`), {method: 'DELETE'}).then((result) => {
-          if (result.response.ok) clearCache(['/api/scenic', '/api/scenes']);
+        return fetchJson(apiUrl(`/api/v1/spots/public?name=${encodeURIComponent(name || '')}`), {method: 'DELETE'}).then((result) => {
+          if (result.response.ok) clearCache(['/api/v1/spots/public']);
           return result;
         });
       },
       listRoutes(options = {}) {
-        return cachedGet('/api/routes', {ttl: 5 * 60 * 1000, ...options});
+        return cachedGet('/api/v1/routes', {ttl: 5 * 60 * 1000, ...options});
       },
       listPublishedRoutes(options = {}) {
-        return cachedGet('/api/published-routes', {ttl: 15 * 60 * 1000, ...options});
+        return cachedGet('/api/v1/published-routes', {ttl: 15 * 60 * 1000, ...options});
       },
       publishRoute(routeData, mapLayer, extra = {}) {
-        return postJson('/api/published-routes', {routeData, mapLayer, ...extra});
+        return postJson('/api/v1/published-routes', {routeData, mapLayer, ...extra});
       },
       importPublishedRoute(routeId) {
-        return fetchJson(apiUrl(`/api/published-routes/${encodeURIComponent(routeId)}/import`), {method: 'POST'});
+        return fetchJson(apiUrl(`/api/v1/published-routes/${encodeURIComponent(routeId)}/import`), {method: 'POST'});
       },
       deletePublishedRoute(routeId) {
-        return fetchJson(apiUrl(`/api/published-routes/${encodeURIComponent(routeId)}`), {method: 'DELETE'}).then((result) => {
-          if (result.response.ok) clearCache(['/api/published-routes']);
+        return fetchJson(apiUrl(`/api/v1/published-routes/${encodeURIComponent(routeId)}`), {method: 'DELETE'}).then((result) => {
+          if (result.response.ok) clearCache(['/api/v1/published-routes']);
           return result;
         });
       },
@@ -205,13 +220,23 @@
         return fetchJson(apiUrl('/api/admin/summary'));
       },
       exportRoute(payload) {
-        return postJson('/api/export-route', payload);
+        const routeId = payload?.routeData?.id || payload?.route?.id;
+        return postJson(`/api/v1/routes/${encodeURIComponent(routeId || '')}/export`, payload).then((result) => {
+          if (result.data?.taskId) lastExportTaskId = result.data.taskId;
+          return result;
+        });
       },
       getExportProgress() {
-        return fetchJson(apiUrl(`/api/export-progress?t=${Date.now()}`));
+        const path = lastExportTaskId
+          ? `/api/v1/exports/${encodeURIComponent(lastExportTaskId)}`
+          : `/api/v1/export-progress?t=${Date.now()}`;
+        return fetchJson(apiUrl(path));
       },
       cancelExport() {
-        return fetchJson(apiUrl('/api/export-cancel'), {method: 'POST'});
+        const path = lastExportTaskId
+          ? `/api/v1/exports/${encodeURIComponent(lastExportTaskId)}/cancel`
+          : '/api/v1/export-cancel';
+        return fetchJson(apiUrl(path), {method: 'POST'});
       },
     };
   }

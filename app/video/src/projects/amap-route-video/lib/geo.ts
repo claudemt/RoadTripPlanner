@@ -6,11 +6,97 @@ export type Camera = {
   project: (point: LngLat) => {x: number; y: number};
 };
 
+export type LabelBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type LabelLayoutItem = {
+  key: string;
+  x: number;
+  y: number;
+  text: string;
+  labelOffset?: {x: number; y: number};
+};
+
 const TILE_SIZE = 256;
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 14.8;
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const overlapArea = (a: LabelBox, b: LabelBox) => {
+  const width = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+  const height = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  return width * height;
+};
+
+const estimateLabelWidth = (text: string, fontSize: number) => {
+  const characters = Array.from(String(text || ''));
+  const measured = characters.reduce((total, character) => {
+    return total + (/[\u0000-\u00ff]/.test(character) ? fontSize * 0.58 : fontSize);
+  }, 0);
+  return clamp(Math.ceil(measured + fontSize * 1.45), fontSize * 8.5, fontSize * 22);
+};
+
+const labelCandidates = (primary: LabelBox, gap: number) => {
+  const candidates: LabelBox[] = [primary];
+  const directions = [
+    [0, -1], [1, -1], [1, 0], [1, 1],
+    [0, 1], [-1, 1], [-1, 0], [-1, -1],
+  ];
+  for (let ring = 1; ring <= 5; ring += 1) {
+    directions.forEach(([x, y]) => {
+      candidates.push({
+        ...primary,
+        x: primary.x + x * ring * (primary.width + gap),
+        y: primary.y + y * ring * (primary.height + gap),
+      });
+    });
+  }
+  return candidates;
+};
+
+export const layoutPointLabels = (items: LabelLayoutItem[], width: number, height: number): Map<string, LabelBox> => {
+  const scale = clamp(Math.min(width / 1280, height / 720), 0.9, 1.35);
+  const fontSize = 14 * scale;
+  const labelHeight = 27 * scale;
+  const gap = 8 * scale;
+  const placed: LabelBox[] = [];
+  const result = new Map<string, LabelBox>();
+
+  items.forEach((item) => {
+    const labelWidth = estimateLabelWidth(item.text, fontSize);
+    const offset = item.labelOffset || {x: 0, y: 0};
+    const primary: LabelBox = {
+      x: item.x + 15 * scale + Number(offset.x || 0) * width,
+      y: item.y - 56 * scale + Number(offset.y || 0) * height,
+      width: labelWidth,
+      height: labelHeight,
+    };
+    const candidates = labelCandidates(primary, gap);
+    let best = primary;
+    let bestScore = Number.POSITIVE_INFINITY;
+    candidates.forEach((candidate, index) => {
+      const overlap = placed.reduce((total, previous) => total + overlapArea(candidate, previous), 0);
+      const outside = Math.max(0, -candidate.x)
+        + Math.max(0, -candidate.y)
+        + Math.max(0, candidate.x + candidate.width - width)
+        + Math.max(0, candidate.y + candidate.height - height);
+      const distance = Math.hypot(candidate.x - primary.x, candidate.y - primary.y);
+      const score = overlap * 100 + outside * 30 + distance * 0.04 + index * 0.001;
+      if (score < bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    });
+    placed.push(best);
+    result.set(item.key, best);
+  });
+  return result;
+};
 
 const mercatorX = (lng: number, zoom = 0) => ((lng + 180) / 360) * TILE_SIZE * Math.pow(2, zoom);
 const mercatorY = (lat: number, zoom = 0) => {
@@ -102,20 +188,9 @@ export const projectedPathLength = (path: LngLat[], project: Camera['project']):
   return total;
 };
 
-export const cumulativePointProgress = (day: VideoDay, project: Camera['project']): number[] => {
-  const total = Math.max(1, projectedPathLength(dayPath(day), project));
-  const values = [0];
-  let acc = 0;
-  day.segments.forEach((seg) => {
-    const path = seg.path?.length ? seg.path : [];
-    acc += projectedPathLength(path, project);
-    values.push(Math.min(1, acc / total));
-  });
-  if (values.length < day.points.length) {
-    for (let i = values.length; i < day.points.length; i++) values.push(i / Math.max(1, day.points.length - 1));
-  }
-  values[values.length - 1] = 1;
-  return values.slice(0, day.points.length);
+export const cumulativePointProgress = (day: VideoDay, _project: Camera['project']): number[] => {
+  const segmentCount = Math.max(1, day.points.length - 1, day.segments.length);
+  return day.points.map((_, index) => Math.min(1, index / segmentCount));
 };
 
 export const samplePath = (path: LngLat[], progress: number, project: Camera['project']): LngLat => {
@@ -134,6 +209,23 @@ export const samplePath = (path: LngLat[], progress: number, project: Camera['pr
     acc += len;
   }
   return path[path.length - 1];
+};
+
+export const sampleDayPath = (day: VideoDay, progress: number, project: Camera['project']): LngLat => {
+  if (!day.points.length) return [0, 0];
+  if (day.points.length === 1) {
+    return [day.points[0].lng, day.points[0].lat];
+  }
+  const segmentCount = Math.max(1, day.points.length - 1);
+  const scaled = clamp(progress, 0, 1) * segmentCount;
+  const segmentIndex = Math.min(segmentCount - 1, Math.floor(scaled));
+  const localProgress = scaled - segmentIndex;
+  const segment = day.segments[segmentIndex];
+  const fallbackPath: LngLat[] = [
+    [day.points[segmentIndex].lng, day.points[segmentIndex].lat],
+    [day.points[segmentIndex + 1].lng, day.points[segmentIndex + 1].lat],
+  ];
+  return samplePath(segment?.path?.length >= 2 ? segment.path : fallbackPath, localProgress, project);
 };
 
 export const svgPath = (path: LngLat[], project: Camera['project']) => {

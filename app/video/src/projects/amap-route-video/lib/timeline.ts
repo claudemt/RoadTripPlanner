@@ -2,9 +2,8 @@ import {RouteVideoData, VideoDay} from '../types';
 
 export const FPS = 30;
 export const COVER_FRAMES = 3 * FPS;
-export const DAY_FRAMES = 7 * FPS;
-export const DAY_ROUTE_FRAMES = 4 * FPS;
-export const DAY_READ_FRAMES = DAY_FRAMES - DAY_ROUTE_FRAMES;
+export const SEGMENT_FRAMES = Math.round(1.5 * FPS);
+export const ENDPOINT_HOLD_FRAMES = 3 * FPS;
 export const OUTRO_FRAMES = 3 * FPS;
 
 export type DayTiming = {
@@ -17,12 +16,14 @@ export type DayTiming = {
 export const dayDistance = (day: VideoDay) => day.segments.reduce((sum, seg) => sum + (seg.distance || 0), 0);
 export const dayDurationSeconds = (day: VideoDay) => day.segments.reduce((sum, seg) => sum + (seg.duration || 0), 0);
 
-export const getDayDurationFrames = (_day: VideoDay) => DAY_FRAMES;
+export const getDayRouteFrames = (day: VideoDay) =>
+  Math.max(1, day.points.length - 1, day.segments.length) * SEGMENT_FRAMES;
+export const getDayDurationFrames = (day: VideoDay) => getDayRouteFrames(day) + ENDPOINT_HOLD_FRAMES;
 
 export const getRenderSpeed = (data: RouteVideoData) => Math.max(0.25, Number(data.renderSpeed || 1) || 1);
 export const getCoverFrames = (_data: RouteVideoData) => COVER_FRAMES;
 export const getOutroFrames = (_data: RouteVideoData) => OUTRO_FRAMES;
-export const getMinDayFrames = (_data: RouteVideoData) => DAY_FRAMES;
+export const getMinDayFrames = (_data: RouteVideoData) => 0;
 
 export const buildTimeline = (data: RouteVideoData): DayTiming[] => {
   let cursor = getCoverFrames(data);
@@ -35,7 +36,7 @@ export const buildTimeline = (data: RouteVideoData): DayTiming[] => {
 };
 
 export const getTotalDuration = (data: RouteVideoData) => {
-  return getCoverFrames(data) + data.days.reduce((sum, day) => sum + Math.max(getMinDayFrames(data), getDayDurationFrames(day)), 0) + getOutroFrames(data);
+  return getCoverFrames(data) + data.days.reduce((sum, day) => sum + getDayDurationFrames(day), 0) + getOutroFrames(data);
 };
 
 export const findActiveTiming = (frame: number, data: RouteVideoData) => buildTimeline(data).find((timing) => frame >= timing.start && frame < timing.end);

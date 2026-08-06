@@ -3,8 +3,8 @@ import {AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, use
 import {loadFont as loadPlayfair} from '@remotion/google-fonts/PlayfairDisplay';
 import {loadFont as loadNotoSansSC} from '@remotion/google-fonts/NotoSansSC';
 import {AMapFixedBackdrop} from '../components/AMapFixedBackdrop';
-import {computeCamera, cumulativePointProgress, dayPath, samplePath, svgPath} from '../lib/geo';
-import {DAY_ROUTE_FRAMES, cleanText, dayDistance, dayDurationSeconds, findActiveTiming, formatTripMetric, getCoverFrames, getOutroFrames, getTotalDuration} from '../lib/timeline';
+import {computeCamera, cumulativePointProgress, dayPath, layoutPointLabels, sampleDayPath, svgPath, LabelBox} from '../lib/geo';
+import {cleanText, dayDistance, dayDurationSeconds, findActiveTiming, formatTripMetric, getCoverFrames, getDayRouteFrames, getOutroFrames, getTotalDuration} from '../lib/timeline';
 import {RouteVideoData, ScenicInfo, VideoDay, VideoPoint} from '../types';
 
 const {fontFamily: playfairFamily} = loadPlayfair();
@@ -48,17 +48,20 @@ const pointColor = (point: VideoPoint, fallback: string) => {
   return fallback;
 };
 
-const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; delay?: number}> = ({point, x, y, color, visible, labelMode, labelText, delay = 0}) => {
+const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; labelBox?: LabelBox; delay?: number}> = ({point, x, y, color, visible, labelMode, labelText, labelBox, delay = 0}) => {
   const frame = useCurrentFrame();
   const {width, height} = useVideoConfig();
   const pop = spring({frame: Math.max(0, frame - delay), fps: 30, config: {damping: 12, stiffness: 130}});
   const showLabel = labelMode === 'all' || (labelMode === 'endpoints' && (point.kind === 'from' || point.kind === 'to'));
   const labelOffset = point.labelOffset || {x: 0, y: 0};
+  const scale = clamp(Math.min(width / 1280, height / 720), 0.9, 1.35);
+  const markerWidth = 38 * scale;
+  const markerHeight = 52 * scale;
   if (!visible) return null;
   return (
     <div style={{position: 'absolute', left: x, top: y, transform: `translate(-50%, -100%) scale(${0.72 + pop * 0.28})`, transformOrigin: '50% 100%', zIndex: 40}}>
-      <div style={{position: 'relative', width: 38, height: 52, filter: 'drop-shadow(0 8px 12px rgba(0,0,0,.45))'}}>
-        <svg width="38" height="52" viewBox="0 0 38 52">
+      <div style={{position: 'relative', width: markerWidth, height: markerHeight, filter: 'drop-shadow(0 8px 12px rgba(0,0,0,.45))'}}>
+        <svg width={markerWidth} height={markerHeight} viewBox="0 0 38 52">
           <path d="M19 2C9.6 2 2 9.7 2 19.1c0 13 17 30.9 17 30.9s17-17.9 17-30.9C36 9.7 28.4 2 19 2z" fill={color} stroke="white" strokeWidth="2.5" />
           <circle cx="19" cy="19" r="10" fill="white" opacity=".96" />
           <text x="19" y="23" textAnchor="middle" fontSize="13" fontWeight="900" fill={color} fontFamily={`"${notoSansFamily}", sans-serif`}>{point.role}</text>
@@ -68,19 +71,22 @@ const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: str
         <div
           style={{
             position: 'absolute',
-            left: 34 + labelOffset.x * width,
-            top: -4 + labelOffset.y * height,
-            maxWidth: 280,
-            padding: '10px 15px',
-            borderRadius: 10,
+            left: labelBox ? labelBox.x - (x - markerWidth / 2) : 34 * scale + labelOffset.x * width,
+            top: labelBox ? labelBox.y - (y - markerHeight) : -4 * scale + labelOffset.y * height,
+            width: labelBox?.width,
+            boxSizing: 'border-box',
+            overflow: 'hidden',
+            padding: `${5 * scale}px ${8 * scale}px`,
+            borderRadius: 6 * scale,
             background: 'rgba(255,255,255,.98)',
             color: '#07111f',
-            fontSize: 30,
+            fontSize: 14 * scale,
             lineHeight: 1.08,
             fontWeight: 900,
             whiteSpace: 'nowrap',
-            boxShadow: '0 14px 32px rgba(0,0,0,.38), 0 0 0 2px rgba(255,255,255,.96)',
-            border: '3px solid rgba(7,17,31,.88)',
+            textOverflow: 'ellipsis',
+            boxShadow: '0 7px 16px rgba(0,0,0,.28)',
+            border: `${Math.max(1, scale)}px solid rgba(7,17,31,.88)`,
             textShadow: '0 1px 0 rgba(255,255,255,.9)',
           }}
         >
@@ -246,6 +252,23 @@ const RouteLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | null;
 };
 
 const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | null; activeProgress: number; camera: ReturnType<typeof computeCamera>}> = ({data, activeDayIndex, activeProgress, camera}) => {
+  const {width, height} = useVideoConfig();
+  const labelItems = data.days.flatMap((day, dayIndex) => {
+    const thresholds = cumulativePointProgress(day, camera.project);
+    let labelMode: LabelMode = 'none';
+    if (activeDayIndex === null) labelMode = 'all';
+    else if (dayIndex < activeDayIndex) labelMode = 'endpoints';
+    else if (dayIndex === activeDayIndex) labelMode = 'all';
+    return day.points.flatMap((point, pointIndex) => {
+      const visible = activeDayIndex === null || dayIndex < activeDayIndex || (dayIndex === activeDayIndex && thresholds[pointIndex] <= activeProgress + 0.015);
+      const showLabel = labelMode === 'all' || (labelMode === 'endpoints' && (point.kind === 'from' || point.kind === 'to'));
+      if (!visible || !showLabel) return [];
+      const {x, y} = camera.project([point.lng, point.lat]);
+      const key = `${dayIndex}-${pointIndex}-${point.name}`;
+      return [{key, x, y, text: `D${dayIndex + 1}-${point.role} ${point.name}`, labelOffset: point.labelOffset}];
+    });
+  });
+  const labelBoxes = layoutPointLabels(labelItems, width, height);
   return (
     <>
       {data.days.map((day, dayIndex) => {
@@ -267,6 +290,7 @@ const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | nul
               visible={visible}
               labelMode={labelMode}
               labelText={`D${dayIndex + 1}-${point.role} ${point.name}`}
+              labelBox={labelBoxes.get(`${dayIndex}-${pointIndex}-${point.name}`)}
               delay={pointIndex * 4}
             />
           );
@@ -314,7 +338,7 @@ const TransportIcon: React.FC<{mode: TransportMode; color: string}> = ({mode, co
 };
 
 const Runner: React.FC<{day: VideoDay; progress: number; camera: ReturnType<typeof computeCamera>}> = ({day, progress, camera}) => {
-  const coord = samplePath(dayPath(day), progress, camera.project);
+  const coord = sampleDayPath(day, progress, camera.project);
   const {x, y} = camera.project(coord);
   const thresholds = cumulativePointProgress(day, camera.project);
   const nextPointIndex = thresholds.findIndex((threshold, index) => index > 0 && progress <= threshold);
@@ -430,7 +454,7 @@ export const AmapRouteVideo: React.FC<Props> = ({data, amapKey, amapSecurityCode
   const activeDay = active ? data.days[active.dayIndex] : null;
   const local = active ? frame - active.start : 0;
   const revealStart = 0;
-  const revealEnd = active ? Math.min(active.duration, DAY_ROUTE_FRAMES) : 1;
+  const revealEnd = active && activeDay ? Math.min(active.duration, getDayRouteFrames(activeDay)) : 1;
   const activeProgress = active ? interpolate(local, [revealStart, revealEnd], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}) : 1;
   const thresholds = activeDay ? cumulativePointProgress(activeDay, camera.project) : [];
   const scenics = activeDay ? activeScenics(activeDay, activeProgress, thresholds) : [];
