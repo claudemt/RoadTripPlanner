@@ -1196,7 +1196,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       if (!route.days.length) return;
       busyActions.add('calculate-route');
       const restoreButton = background ? () => {} : setButtonBusy('calcBtn', true, '刷新中…');
-      if (!background) setLoading('正在计算路线…', {percent: 12, detail: '准备路线请求'});
+      if (!background) setLoading('地图加载中', {percent: 12, detail: '准备路线请求'});
       try {
         route.segmentCache = route.segmentCache || {};
         if (!Array.isArray(segmentResults) || segmentResults.length !== route.days.length) {
@@ -1210,7 +1210,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           const dayIndex = targetDays[targetIndex];
           if (!route.days[dayIndex]) continue;
           if (!background) {
-            setLoading('正在计算路线…', {
+            setLoading('地图加载中', {
               percent: 12 + Math.round((targetIndex / Math.max(1, targetDays.length)) * 72),
               detail: `D${dayIndex + 1} / ${targetDays.length} 天`
             });
