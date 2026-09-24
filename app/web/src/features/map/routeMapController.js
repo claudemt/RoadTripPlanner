@@ -38,7 +38,7 @@
       const icon = presentation?.weather && pointInfo?.weather
         ? `<img class="route-marker-weather-icon" src="${window.MapPresentation.weatherMeta(pointInfo.weather.code).iconUrl}" alt="${escapeHtml(window.MapPresentation.weatherMeta(pointInfo.weather.code).label)}" />`
         : '';
-      return `<div class="marker-label route-marker-label" data-route-label-key="${dayIndex}:${item.kind}:${item.waypointIndex ?? ''}"><div class="route-marker-title">${title}</div>${facts ? `<div class="route-marker-facts"><span>${escapeHtml(facts)}</span>${icon}</div>` : ''}</div>`;
+      return `<div class="marker-label route-marker-label" data-route-label-key="${dayIndex}:${item.kind}:${item.waypointIndex ?? ''}"><div class="route-marker-title">${title}</div>${facts ? `<div class="route-marker-facts">${icon}<span>${escapeHtml(facts)}</span></div>` : ''}</div>`;
     }
 
     function normalizePathPoint(point) {

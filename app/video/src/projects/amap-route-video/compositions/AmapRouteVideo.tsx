@@ -57,8 +57,8 @@ const weatherMeta = (code: number) => {
 };
 const pointFacts = (point: VideoPoint, data: RouteVideoData) => {
   const values: string[] = [];
+  if (data.presentation?.weather && point.weather) values.push(`${weatherMeta(point.weather.code).label} · ${Math.round(point.weather.minC)}–${Math.round(point.weather.maxC)} °C`);
   if (data.presentation?.elevation && Number.isFinite(Number(point.elevationM))) values.push(`${Math.round(Number(point.elevationM) / 10) * 10} m`);
-  if (data.presentation?.weather && point.weather) values.push(`${Math.round(point.weather.minC)}–${Math.round(point.weather.maxC)} °C`);
   return values.join(' · ');
 };
 
@@ -106,7 +106,7 @@ const PointMarker: React.FC<{data: RouteVideoData; point: VideoPoint; x: number;
           }}
         >
           <div>{labelText || point.name}</div>
-          {facts ? <div style={{display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, color: '#475569', fontSize: 11 * scale}}><span>{facts}</span>{data.presentation?.weather && point.weather ? <Img src={staticFile(`weather/${weatherMeta(point.weather.code).icon}.svg`)} style={{width: 15 * scale, height: 15 * scale}} /> : null}</div> : null}
+          {facts ? <div style={{display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, color: '#475569', fontSize: 11 * scale}}>{data.presentation?.weather && point.weather ? <Img src={staticFile(`weather/${weatherMeta(point.weather.code).icon}.svg`)} style={{width: 15 * scale, height: 15 * scale}} /> : null}<span>{facts}</span></div> : null}
         </div>
       ) : null}
     </div>

@@ -14,7 +14,7 @@ const templateUrl = (template, z, x, y) => String(template || '')
   .replace(/\{x\}/g, String(x))
   .replace(/\{y\}/g, String(y));
 
-const createHillshadeService = ({dataRoot, enabled = true, sourceUrl = '', cacheVersion = 'v1', minZoom = 5, maxZoom = 12, fetchImpl = global.fetch} = {}) => {
+const createHillshadeService = ({dataRoot, enabled = true, sourceUrl = '', cacheVersion = 'v2', minZoom = 5, maxZoom = 12, fetchImpl = global.fetch} = {}) => {
   const cacheRoot = path.join(dataRoot, 'cache', 'hillshade', cacheVersion);
   let transparentPromise = null;
   const transparent = () => {
@@ -60,7 +60,7 @@ const createHillshadeService = ({dataRoot, enabled = true, sourceUrl = '', cache
         tiles.push(fetchTile(z, sourceTileX + dx, sourceTileY + dy).then((input) => ({input, left: (dx + 1) * 256, top: (dy + 1) * 256})));
       }
     }
-    const alphaMask = await sharp({create: {width: 256, height: 256, channels: 4, background: {r: 255, g: 255, b: 255, alpha: 0.58}}}).png().toBuffer();
+    const alphaMask = await sharp({create: {width: 256, height: 256, channels: 4, background: {r: 255, g: 255, b: 255, alpha: 0.78}}}).png().toBuffer();
     const mosaicBuffer = await sharp({create: {width: 768, height: 768, channels: 4, background: {r: 0, g: 0, b: 0, alpha: 0}}})
       .composite(await Promise.all(tiles))
       .png()

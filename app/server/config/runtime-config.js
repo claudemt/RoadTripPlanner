@@ -68,7 +68,7 @@ const createRuntimeConfig = (applicationRoot) => {
     hillshade: {
       enabled: envFlag('HILLSHADE_ENABLED', true),
       sourceUrl: envText('HILLSHADE_SOURCE_URL', 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}'),
-      cacheVersion: envText('HILLSHADE_CACHE_VERSION', 'v1') || 'v1',
+      cacheVersion: envText('HILLSHADE_CACHE_VERSION', 'v2') || 'v2',
       minZoom: Math.max(0, Number(envText('HILLSHADE_MIN_ZOOM', '5')) || 5),
       maxZoom: Math.max(0, Number(envText('HILLSHADE_MAX_ZOOM', '12')) || 12),
     },

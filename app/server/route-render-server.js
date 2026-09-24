@@ -613,10 +613,10 @@ const weatherIconForManual = (code, outputDir) => {
 
 const pointFactsForManual = (point, presentation) => {
   const values = [];
-  if (presentation?.elevation && Number.isFinite(Number(point?.elevationM))) values.push(`${Math.round(Number(point.elevationM) / 10) * 10} m`);
   if (presentation?.weather && point?.weather) {
-    values.push(`${Math.round(Number(point.weather.minC))}–${Math.round(Number(point.weather.maxC))} °C · ${weatherLabel(point.weather.code)}`);
+    values.push(`${weatherLabel(point.weather.code)} · ${Math.round(Number(point.weather.minC))}–${Math.round(Number(point.weather.maxC))} °C`);
   }
+  if (presentation?.elevation && Number.isFinite(Number(point?.elevationM))) values.push(`${Math.round(Number(point.elevationM) / 10) * 10} m`);
   return values.join(' · ');
 };
 
@@ -662,9 +662,9 @@ const buildTravelManual = (videoData, routeData, options = {}) => {
       const facts = pointFactsForManual(point, videoData?.presentation);
       if (facts) {
         const icon = videoData?.presentation?.weather && point.weather
-          ? ` ![${weatherLabel(point.weather.code)}](<${weatherIconForManual(point.weather.code, options.outputDir)}>)`
+          ? `![${weatherLabel(point.weather.code)}](<${weatherIconForManual(point.weather.code, options.outputDir)}>) `
           : '';
-        lines.push(`  - ${facts}${icon}`);
+        lines.push(`  - ${icon}${facts}`);
       }
       if (point.kind !== 'from' && scenic?.description) lines.push(`  - ${mdEscape(scenic.description)}`);
       const images = point.kind === 'from' ? [] : scenicImagesForManual(scenic, options.outputDir);

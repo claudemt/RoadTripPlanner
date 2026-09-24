@@ -42,14 +42,14 @@ import weatherCodeMap from '../../../../shared/weather-codes.json';
     const {label, icon} = WEATHER_CODE_MAP[Number(code)] || {label: '未知天气', icon: 'cloudy'};
     return {label, icon, iconUrl: `/weather/${icon}.svg`};
   };
-  const formatFacts = (pointInfo, presentation, {weatherLabel = false} = {}) => {
+  const formatFacts = (pointInfo, presentation) => {
     const facts = [];
-    if (presentation?.elevation && Number.isFinite(Number(pointInfo?.elevationM))) facts.push(`${Math.round(Number(pointInfo.elevationM) / 10) * 10} m`);
     if (presentation?.weather && pointInfo?.weather) {
       const weather = pointInfo.weather;
       const text = `${Math.round(Number(weather.minC))}–${Math.round(Number(weather.maxC))} °C`;
-      facts.push(weatherLabel ? `${text} · ${weatherMeta(weather.code).label}` : text);
+      facts.push(`${weatherMeta(weather.code).label} · ${text}`);
     }
+    if (presentation?.elevation && Number.isFinite(Number(pointInfo?.elevationM))) facts.push(`${Math.round(Number(pointInfo.elevationM) / 10) * 10} m`);
     return facts.join(' · ');
   };
   window.MapPresentation = {DEFAULT_PRESENTATION, WEATHER_FORECAST_DAYS, WEATHER_CODE_MAP, normalize, localDate, addDays, dateBounds, weatherMeta, formatFacts};

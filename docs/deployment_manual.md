@@ -25,7 +25,7 @@ sudo systemctl enable --now map
 ```text
 HILLSHADE_ENABLED=true
 HILLSHADE_SOURCE_URL=https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}
-HILLSHADE_CACHE_VERSION=v1
+HILLSHADE_CACHE_VERSION=v2
 HILLSHADE_MIN_ZOOM=5
 HILLSHADE_MAX_ZOOM=12
 POINT_INFO_WEATHER_TTL_MINUTES=30

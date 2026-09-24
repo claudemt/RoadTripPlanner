@@ -1845,7 +1845,6 @@
       font-size: 11px;
     }
     .map-enhancement-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .map-enhancement-title { flex: 0 0 auto; color: var(--muted); font-weight: 650; }
     .map-feature-switches {
       display: grid;
       grid-template-columns: repeat(3, 1fr);

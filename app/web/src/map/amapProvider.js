@@ -111,7 +111,7 @@
       this.roadNetLayer = new AMap.TileLayer.RoadNet({ zIndex: 2, opacity: 0.65 });
       this.hillshadeLayer = new AMap.TileLayer({
         zIndex: 3,
-        opacity: 0.62,
+        opacity: 0.82,
         zooms: [5, 15],
         getTileUrl: (x, y, z) => `/api/map/hillshade/${Number(z)}/${Number(x)}/${Number(y)}.webp`
       });

@@ -85,7 +85,7 @@ export const AMapFixedBackdrop: React.FC<Props> = ({center, zoom, mapLayer, amap
         const roadNet = new AMap.TileLayer.RoadNet({zIndex: 2, opacity: mapLayer === 'hybrid' ? 0.86 : 0});
         const hillshadeLayer = new AMap.TileLayer({
           zIndex: 3,
-          opacity: 0.62,
+          opacity: 0.82,
           zooms: [5, 15],
           getTileUrl: (x: number, y: number, z: number) => `${hillshadeEndpoint}/${Number(z)}/${Number(x)}/${Number(y)}.webp`,
         });
