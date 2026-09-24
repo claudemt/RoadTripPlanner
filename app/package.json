@@ -17,7 +17,8 @@
     "release:check": "npm test && npm run build && npm run typecheck && node --check server/route-render-server.js && node --check server/routes/map-enhancement-routes.js",
     "diagnose-asset-url": "node scripts/diagnose-asset-url.js",
     "studio": "npm --workspace video run studio",
-    "typecheck": "npm --workspace video run typecheck"
+    "prepare:video-data": "node scripts/prepare-video-data.js",
+    "typecheck": "npm run prepare:video-data && npm --workspace video run typecheck"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.5"
