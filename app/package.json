@@ -13,7 +13,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "local": "node server/route-render-server.js",
     "cli": "node scripts/roadtrip-cli.js",
-    "test": "node --test test/route-validation.test.js test/coordinate-transform.test.js test/point-info-service.test.js test/hillshade-service.test.js test/map-enhancement-routes.test.js test/point-info-controller.test.js",
+    "test": "node --test test/route-validation.test.js test/coordinate-transform.test.js test/point-info-service.test.js test/hillshade-service.test.js test/map-enhancement-routes.test.js test/point-info-controller.test.js test/route-model.test.js",
     "release:check": "npm test && npm run build && npm run typecheck && node --check server/route-render-server.js && node --check server/routes/map-enhancement-routes.js",
     "diagnose-asset-url": "node scripts/diagnose-asset-url.js",
     "studio": "npm --workspace video run studio",

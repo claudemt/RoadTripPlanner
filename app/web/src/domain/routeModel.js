@@ -154,6 +154,20 @@
     return Boolean(point && point.name && Number.isFinite(Number(point.lng)) && Number.isFinite(Number(point.lat)));
   }
 
+  function isSamePoint(left, right) {
+    if (!isPointReady(left) || !isPointReady(right)) return false;
+    const leftName = String(left.name).trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const rightName = String(right.name).trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    return leftName === rightName
+      && Math.abs(Number(left.lng) - Number(right.lng)) <= 0.000001
+      && Math.abs(Number(left.lat) - Number(right.lat)) <= 0.000001;
+  }
+
+  function isDuplicateDayStart(route, dayIndex) {
+    if (!route?.days || dayIndex <= 0 || dayIndex >= route.days.length) return false;
+    return isSamePoint(route.days[dayIndex - 1]?.to, route.days[dayIndex]?.from);
+  }
+
   function getDayPoints(day) {
     const list = [{ role: '起', kind: 'from', point: day.from }];
     day.waypoints.forEach((point, waypointIndex) => list.push({
@@ -190,6 +204,8 @@
     normalizeRoute,
     createBlankRoute,
     isPointReady,
+    isSamePoint,
+    isDuplicateDayStart,
     getDayPoints,
     daySignature,
     geoSignature,

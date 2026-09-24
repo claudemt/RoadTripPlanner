@@ -62,6 +62,7 @@
         if (currentRouteView !== 'all' && Number(currentRouteView) !== dayIndex) return;
         const points = getDayPoints(day).filter((item) => isPointReady(item.point));
         points.forEach((item, pointIndex) => {
+          if (item.kind === 'from' && window.RouteModel.isDuplicateDayStart(route, dayIndex)) return;
           const color = item.role === '起'
             ? '#16a34a'
             : item.role === '终'

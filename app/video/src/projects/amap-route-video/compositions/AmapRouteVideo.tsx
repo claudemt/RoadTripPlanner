@@ -62,6 +62,26 @@ const pointFacts = (point: VideoPoint, data: RouteVideoData) => {
   return values.join(' · ');
 };
 
+const isSamePoint = (left: VideoPoint | undefined, right: VideoPoint | undefined) => {
+  if (!left || !right) return false;
+  const leftName = String(left.name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  const rightName = String(right.name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return Boolean(leftName && leftName === rightName)
+    && Math.abs(Number(left.lng) - Number(right.lng)) <= 0.000001
+    && Math.abs(Number(left.lat) - Number(right.lat)) <= 0.000001;
+};
+
+const isDuplicateDayStart = (data: RouteVideoData, dayIndex: number, pointIndex: number) =>
+  dayIndex > 0
+  && pointIndex === 0
+  && isSamePoint(
+    data.days[dayIndex - 1]?.points[data.days[dayIndex - 1].points.length - 1],
+    data.days[dayIndex]?.points[0],
+  );
+
+const visualPointsForDay = (data: RouteVideoData, dayIndex: number) =>
+  data.days[dayIndex].points.filter((_, pointIndex) => !isDuplicateDayStart(data, dayIndex, pointIndex));
+
 const PointMarker: React.FC<{data: RouteVideoData; point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; labelBox?: LabelBox; delay?: number}> = ({data, point, x, y, color, visible, labelMode, labelText, labelBox, delay = 0}) => {
   const frame = useCurrentFrame();
   const {width, height} = useVideoConfig();
@@ -276,6 +296,7 @@ const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | nul
     else if (dayIndex < activeDayIndex) labelMode = 'endpoints';
     else if (dayIndex === activeDayIndex) labelMode = 'all';
     return day.points.flatMap((point, pointIndex) => {
+      if (isDuplicateDayStart(data, dayIndex, pointIndex)) return [];
       const visible = activeDayIndex === null || dayIndex < activeDayIndex || (dayIndex === activeDayIndex && thresholds[pointIndex] <= activeProgress + 0.015);
       const showLabel = labelMode === 'all' || (labelMode === 'endpoints' && (point.kind === 'from' || point.kind === 'to'));
       if (!visible || !showLabel) return [];
@@ -295,6 +316,7 @@ const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | nul
         else if (dayIndex < activeDayIndex) labelMode = 'endpoints';
         else if (dayIndex === activeDayIndex) labelMode = 'all';
         return day.points.map((point, pointIndex) => {
+          if (isDuplicateDayStart(data, dayIndex, pointIndex)) return null;
           const {x, y} = camera.project([point.lng, point.lat]);
           const visible = activeDayIndex === null || dayIndex < activeDayIndex || (dayIndex === activeDayIndex && thresholds[pointIndex] <= activeProgress + 0.015);
           return (
@@ -410,11 +432,12 @@ const Outro: React.FC<{data: RouteVideoData; frame: number}> = ({data, frame}) =
         </div>
       </div>
       <div style={{position: 'absolute', left: 70, right: 70, bottom: 64, display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 480, overflow: 'hidden'}}>
-        {data.days.map((day, dayIndex) => (
-          <div key={day.title || dayIndex} style={{display: 'flex', alignItems: 'center', gap: 12}}>
+        {data.days.map((day, dayIndex) => {
+          const points = visualPointsForDay(data, dayIndex);
+          return <div key={day.title || dayIndex} style={{display: 'flex', alignItems: 'center', gap: 12}}>
             <div style={{flex: '0 0 auto', minWidth: 62, textAlign: 'center', padding: '10px 12px', borderRadius: 14, background: day.color, color: '#07111f', fontWeight: 1000, fontSize: 24}}>D{dayIndex + 1}</div>
             <div style={{display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, flex: 1, minWidth: 0}}>
-              {day.points.map((point, pointIndex) => (
+              {points.map((point, pointIndex) => (
                 <React.Fragment key={`${dayIndex}-${pointIndex}-${point.name}`}>
                   {pointIndex > 0 ? <span style={{color: 'rgba(255,255,255,.55)', fontSize: 24, fontWeight: 900, flex: '0 0 auto'}}>→</span> : null}
                   <div style={{padding: '8px 14px', borderRadius: 12, background: 'rgba(255,255,255,.12)', border: `2px solid ${pointColor(point, day.color)}`, fontSize: 22, fontWeight: 900, whiteSpace: 'nowrap'}}>
@@ -423,8 +446,8 @@ const Outro: React.FC<{data: RouteVideoData; frame: number}> = ({data, frame}) =
                 </React.Fragment>
               ))}
             </div>
-          </div>
-        ))}
+          </div>;
+        })}
       </div>
     </AbsoluteFill>
   );
