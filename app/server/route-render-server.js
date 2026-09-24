@@ -210,6 +210,13 @@ const prepareRemotionPublicDir = (videoData) => {
         .forEach((name) => fs.copyFileSync(path.join(weatherDir, name), path.join(tempDir, 'weather', name)));
     }
   }
+  const fontDir = path.join(REMOTION_ROOT, 'public', 'fonts');
+  if (fs.existsSync(fontDir)) {
+    ensureDir(path.join(tempDir, 'fonts'));
+    fs.readdirSync(fontDir)
+      .filter((name) => /\.(otf|ttf|woff2?)$/i.test(name))
+      .forEach((name) => fs.copyFileSync(path.join(fontDir, name), path.join(tempDir, 'fonts', name)));
+  }
   return tempDir;
 };
 
@@ -780,7 +787,7 @@ const markdownToHtmlDocument = (markdown, title, baseDir = AMAP_ROOT) => {
   <style>
     @font-face {
       font-family: 'Noto Sans SC';
-      src: url('${toFileUrl(path.join(__dirname, 'assets', 'NotoSansSC-Regular.otf'))}') format('opentype');
+      src: url('${toFileUrl(path.join(REMOTION_ROOT, 'public', 'fonts', 'NotoSansSC-Regular.otf'))}') format('opentype');
       font-weight: 400;
       font-style: normal;
       font-display: swap;
@@ -2407,7 +2414,7 @@ const openCdpSession = async (wsUrl) => {
 };
 
 const renderMarkdownPdf = async (markdown, pdfPath, title, baseDir = AMAP_ROOT) => {
-  const browserPath = resolveBrowserPath();
+  const browserPath = await ensureExportBrowser();
   if (!browserPath) throw new Error('未找到 Chrome/Edge，无法将 Markdown 渲染为 PDF');
 
   ensureDir(path.dirname(pdfPath));

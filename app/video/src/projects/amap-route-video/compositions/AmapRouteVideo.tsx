@@ -1,15 +1,20 @@
 import React from 'react';
-import {AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {loadFont as loadPlayfair} from '@remotion/google-fonts/PlayfairDisplay';
-import {loadFont as loadNotoSansSC} from '@remotion/google-fonts/NotoSansSC';
+import {AbsoluteFill, Img, continueRender, delayRender, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {AMapFixedBackdrop} from '../components/AMapFixedBackdrop';
 import {computeCamera, cumulativePointProgress, dayPath, layoutPointLabels, sampleDayPath, svgPath, LabelBox} from '../lib/geo';
 import {cleanText, dayDistance, dayDurationSeconds, findActiveTiming, formatTripMetric, getCoverFrames, getDayRouteFrames, getOutroFrames, getTotalDuration} from '../lib/timeline';
 import {RouteVideoData, ScenicInfo, VideoDay, VideoPoint} from '../types';
 import weatherCodeMap from '../../../../../shared/weather-codes.json';
 
-const {fontFamily: playfairFamily} = loadPlayfair();
-const {fontFamily: notoSansFamily} = loadNotoSansSC();
+const notoSansFamily = 'RoadTrip Noto Sans SC';
+if (typeof document !== 'undefined') {
+  const fontHandle = delayRender('Loading bundled Noto Sans SC');
+  const fontFace = new FontFace(notoSansFamily, `url(${staticFile('fonts/NotoSansSC-Regular.otf')})`);
+  fontFace.load()
+    .then((loadedFont) => document.fonts.add(loadedFont))
+    .catch(() => {})
+    .finally(() => continueRender(fontHandle));
+}
 
 type Props = {
   data: RouteVideoData;
@@ -43,7 +48,7 @@ const colors = {
 const HUD_RECT = {x: 52, y: 38, width: 930, height: 120};
 
 const styles: Record<string, React.CSSProperties> = {
-  font: {fontFamily: `"${playfairFamily}", "${notoSansFamily}", "Microsoft YaHei", system-ui, sans-serif`, color: 'white'},
+  font: {fontFamily: `"${notoSansFamily}", "Microsoft YaHei", system-ui, sans-serif`, color: 'white'},
 };
 
 const pointColor = (point: VideoPoint, fallback: string) => {
