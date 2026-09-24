@@ -1,6 +1,7 @@
 export type LngLat = [number, number];
 
 export type MapLayer = 'standard' | 'satellite' | 'hybrid';
+export type MapPresentation = {mapLayer: MapLayer; hillshade: boolean; weather: boolean; elevation: boolean; startDate: string | null};
 
 export type ScenicInfo = {
   title: string;
@@ -19,6 +20,8 @@ export type VideoPoint = {
   transportMode?: 'drive' | 'ride' | 'walk';
   labelOffset?: {x: number; y: number};
   scenic?: ScenicInfo | null;
+  elevationM?: number;
+  weather?: {date: string; minC: number; maxC: number; code: number};
 };
 
 export type VideoSegment = {
@@ -42,6 +45,8 @@ export type RouteVideoData = {
   version: number;
   exportedAt: string;
   mapLayer: MapLayer;
+  presentation?: MapPresentation;
+  hillshadeEndpoint?: string;
   renderSpeed?: number;
   renderMode?: 'video' | 'mapOnly' | 'overview';
   staticMapImage?: string;

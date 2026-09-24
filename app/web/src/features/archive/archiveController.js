@@ -235,9 +235,8 @@
         let segmentResults = (route.days || []).map((day, dayIndex) => {
           const cached = route.segmentCache?.[dayIndex];
           const expectedSegments = Math.max(0, getDayPoints(day).filter((item) => isPointReady(item.point)).length - 1);
-          const signatureMatches = cached?.signature && cached.signature === daySignature(day);
-          const legacyShapeMatches = !cached?.signature && Array.isArray(cached?.segments) && cached.segments.length >= expectedSegments;
-          return cached && Array.isArray(cached.segments) && (signatureMatches || legacyShapeMatches)
+          const signatureMatches = cached?.signature === daySignature(day);
+          return cached && Array.isArray(cached.segments) && cached.segments.length >= expectedSegments && signatureMatches
             ? {segments: cached.segments}
             : {segments: []};
         });
@@ -301,6 +300,8 @@
       busy.add('publish');
       try {
         const videoData = await buildPublishVideoData?.(routeData);
+        if (!videoData) return;
+        if (videoData.presentation) routeData.presentation = structuredClone(videoData.presentation);
         const config = {
           key: window.AMAP_PLANNER_CONFIG?.key || '',
           securityJsCode: window.AMAP_PLANNER_CONFIG?.securityJsCode || '',
@@ -357,9 +358,8 @@
         const segmentResults = (route.days || []).map((day, dayIndex) => {
           const cached = route.segmentCache?.[dayIndex];
           const expectedSegments = Math.max(0, getDayPoints(day).filter((item) => isPointReady(item.point)).length - 1);
-          const signatureMatches = cached?.signature && cached.signature === daySignature(day);
-          const legacyShapeMatches = !cached?.signature && Array.isArray(cached?.segments) && cached.segments.length >= expectedSegments;
-          return cached && Array.isArray(cached.segments) && (signatureMatches || legacyShapeMatches)
+          const signatureMatches = cached?.signature === daySignature(day);
+          return cached && Array.isArray(cached.segments) && cached.segments.length >= expectedSegments && signatureMatches
             ? {segments: cached.segments}
             : {segments: []};
         });

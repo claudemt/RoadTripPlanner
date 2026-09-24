@@ -6,6 +6,7 @@ import {AMapFixedBackdrop} from '../components/AMapFixedBackdrop';
 import {computeCamera, cumulativePointProgress, dayPath, layoutPointLabels, sampleDayPath, svgPath, LabelBox} from '../lib/geo';
 import {cleanText, dayDistance, dayDurationSeconds, findActiveTiming, formatTripMetric, getCoverFrames, getDayRouteFrames, getOutroFrames, getTotalDuration} from '../lib/timeline';
 import {RouteVideoData, ScenicInfo, VideoDay, VideoPoint} from '../types';
+import weatherCodeMap from '../../../../../shared/weather-codes.json';
 
 const {fontFamily: playfairFamily} = loadPlayfair();
 const {fontFamily: notoSansFamily} = loadNotoSansSC();
@@ -38,6 +39,9 @@ const colors = {
   dark: '#07111f',
 };
 
+// 顶部信息条（Hud）在 1280x720 下的占位矩形，供标签布局避让，避免途径点标签被黑条遮挡。
+const HUD_RECT = {x: 52, y: 38, width: 930, height: 120};
+
 const styles: Record<string, React.CSSProperties> = {
   font: {fontFamily: `"${playfairFamily}", "${notoSansFamily}", "Microsoft YaHei", system-ui, sans-serif`, color: 'white'},
 };
@@ -48,7 +52,17 @@ const pointColor = (point: VideoPoint, fallback: string) => {
   return fallback;
 };
 
-const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; labelBox?: LabelBox; delay?: number}> = ({point, x, y, color, visible, labelMode, labelText, labelBox, delay = 0}) => {
+const weatherMeta = (code: number) => {
+  return (weatherCodeMap as Record<string, {label: string; icon: string}>)[String(code)] || {label: '未知天气', icon: 'cloudy'};
+};
+const pointFacts = (point: VideoPoint, data: RouteVideoData) => {
+  const values: string[] = [];
+  if (data.presentation?.elevation && Number.isFinite(Number(point.elevationM))) values.push(`${Math.round(Number(point.elevationM) / 10) * 10} m`);
+  if (data.presentation?.weather && point.weather) values.push(`${Math.round(point.weather.minC)}–${Math.round(point.weather.maxC)} °C`);
+  return values.join(' · ');
+};
+
+const PointMarker: React.FC<{data: RouteVideoData; point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; labelBox?: LabelBox; delay?: number}> = ({data, point, x, y, color, visible, labelMode, labelText, labelBox, delay = 0}) => {
   const frame = useCurrentFrame();
   const {width, height} = useVideoConfig();
   const pop = spring({frame: Math.max(0, frame - delay), fps: 30, config: {damping: 12, stiffness: 130}});
@@ -58,6 +72,7 @@ const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: str
   const markerWidth = 38 * scale;
   const markerHeight = 52 * scale;
   if (!visible) return null;
+  const facts = pointFacts(point, data);
   return (
     <div style={{position: 'absolute', left: x, top: y, transform: `translate(-50%, -100%) scale(${0.72 + pop * 0.28})`, transformOrigin: '50% 100%', zIndex: 40}}>
       <div style={{position: 'relative', width: markerWidth, height: markerHeight, filter: 'drop-shadow(0 8px 12px rgba(0,0,0,.45))'}}>
@@ -90,7 +105,8 @@ const PointMarker: React.FC<{point: VideoPoint; x: number; y: number; color: str
             textShadow: '0 1px 0 rgba(255,255,255,.9)',
           }}
         >
-          {labelText || point.name}
+          <div>{labelText || point.name}</div>
+          {facts ? <div style={{display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, color: '#475569', fontSize: 11 * scale}}><span>{facts}</span>{data.presentation?.weather && point.weather ? <Img src={staticFile(`weather/${weatherMeta(point.weather.code).icon}.svg`)} style={{width: 15 * scale, height: 15 * scale}} /> : null}</div> : null}
         </div>
       ) : null}
     </div>
@@ -193,7 +209,7 @@ const Hud: React.FC<{data: RouteVideoData; day: VideoDay; dayIndex: number; prog
           <div style={{fontSize: 25, fontWeight: 950, color: 'rgba(255,255,255,.9)', whiteSpace: 'nowrap'}}>{metric}</div>
         </div>
         <div style={{fontSize: 19, color: 'rgba(255,255,255,.78)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
-          {segment ? `${segment.from} -> ${segment.to}` : data.route.name}
+          {segment ? `${segment.from} → ${segment.to} · ${formatTripMetric(segment.distance, segment.duration)}` : data.route.name}
         </div>
       </div>
     </div>
@@ -265,10 +281,11 @@ const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | nul
       if (!visible || !showLabel) return [];
       const {x, y} = camera.project([point.lng, point.lat]);
       const key = `${dayIndex}-${pointIndex}-${point.name}`;
-      return [{key, x, y, text: `D${dayIndex + 1}-${point.role} ${point.name}`, labelOffset: point.labelOffset}];
+      const facts = pointFacts(point, data);
+      return [{key, x, y, text: `D${dayIndex + 1}-${point.role} ${point.name}${facts ? `\n${facts}` : ''}`, labelOffset: point.labelOffset}];
     });
   });
-  const labelBoxes = layoutPointLabels(labelItems, width, height);
+  const labelBoxes = layoutPointLabels(labelItems, width, height, activeDayIndex === null ? [] : [HUD_RECT]);
   return (
     <>
       {data.days.map((day, dayIndex) => {
@@ -282,6 +299,7 @@ const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | nul
           const visible = activeDayIndex === null || dayIndex < activeDayIndex || (dayIndex === activeDayIndex && thresholds[pointIndex] <= activeProgress + 0.015);
           return (
             <PointMarker
+              data={data}
               key={`${dayIndex}-${pointIndex}-${point.name}`}
               point={point}
               x={x}
@@ -381,15 +399,6 @@ const Outro: React.FC<{data: RouteVideoData; frame: number}> = ({data, frame}) =
   const start = total - outroFrames;
   const local = frame - start;
   const opacity = interpolate(local, [0, Math.min(26, outroFrames * 0.45), Math.max(outroFrames - 12, outroFrames * 0.72)], [0, 1, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  const scenicHighlights = uniqueHighlights(data).slice(0, 4);
-  const highlightCards = scenicHighlights.length
-    ? scenicHighlights
-    : data.days.slice(0, 4).map((day, index) => ({
-        title: day.title,
-        description: `${day.points[0]?.name || '起点'} → ${day.points[day.points.length - 1]?.name || '终点'}`,
-        images: [],
-        name: `day-${index}`,
-      }));
   return (
     <AbsoluteFill style={{opacity, zIndex: 95, background: 'linear-gradient(90deg, rgba(2,6,14,.90), rgba(2,6,14,.72), rgba(2,6,14,.86))', ...styles.font}}>
       <div style={{position: 'absolute', left: 70, top: 70, right: 70}}>
@@ -400,34 +409,25 @@ const Outro: React.FC<{data: RouteVideoData; frame: number}> = ({data, frame}) =
           <Badge value={formatTripMetric(data.summary.totalDistance, data.summary.totalDuration)} />
         </div>
       </div>
-      <div style={{position: 'absolute', left: 70, right: 70, bottom: 70, display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, highlightCards.length)}, 1fr)`, gap: 20}}>
-        {highlightCards.map((spot, index) => (
-          <div key={spot.title + index} style={{height: 382, borderRadius: 24, overflow: 'hidden', background: 'rgba(255,255,255,.10)', border: '1px solid rgba(255,255,255,.22)', boxShadow: '0 22px 60px rgba(0,0,0,.36)'}}>
-            {spot.images?.[0] ? <Img src={safeAsset(spot.images[0])} style={{width: '100%', height: 156, objectFit: 'contain', background: 'rgba(2,6,14,.7)'}} /> : <div style={{height: 156, background: 'linear-gradient(135deg, #183b63, #0f172a)'}} />}
-            <div style={{padding: 22}}>
-              <div style={{fontSize: 33, fontWeight: 1000, lineHeight: 1.12}}>{cleanText(spot.title, 24)}</div>
-              <div style={{fontSize: 23, lineHeight: 1.34, marginTop: 12, color: 'rgba(255,255,255,.82)'}}>{cleanText(spot.description || '', 90)}</div>
+      <div style={{position: 'absolute', left: 70, right: 70, bottom: 64, display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 480, overflow: 'hidden'}}>
+        {data.days.map((day, dayIndex) => (
+          <div key={day.title || dayIndex} style={{display: 'flex', alignItems: 'center', gap: 12}}>
+            <div style={{flex: '0 0 auto', minWidth: 62, textAlign: 'center', padding: '10px 12px', borderRadius: 14, background: day.color, color: '#07111f', fontWeight: 1000, fontSize: 24}}>D{dayIndex + 1}</div>
+            <div style={{display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, flex: 1, minWidth: 0}}>
+              {day.points.map((point, pointIndex) => (
+                <React.Fragment key={`${dayIndex}-${pointIndex}-${point.name}`}>
+                  {pointIndex > 0 ? <span style={{color: 'rgba(255,255,255,.55)', fontSize: 24, fontWeight: 900, flex: '0 0 auto'}}>→</span> : null}
+                  <div style={{padding: '8px 14px', borderRadius: 12, background: 'rgba(255,255,255,.12)', border: `2px solid ${pointColor(point, day.color)}`, fontSize: 22, fontWeight: 900, whiteSpace: 'nowrap'}}>
+                    <span style={{opacity: .75, marginRight: 6}}>{point.role}</span>{cleanText(point.name, 16)}
+                  </div>
+                </React.Fragment>
+              ))}
             </div>
           </div>
         ))}
       </div>
     </AbsoluteFill>
   );
-};
-
-const uniqueHighlights = (data: RouteVideoData): ScenicInfo[] => {
-  const seen = new Set<string>();
-  const result: ScenicInfo[] = [];
-  data.days.forEach((day) => {
-    day.points.forEach((point) => {
-      if (!point.scenic) return;
-      const key = point.scenic.title || point.scenic.name || point.name;
-      if (seen.has(key)) return;
-      seen.add(key);
-      result.push(point.scenic);
-    });
-  });
-  return result;
 };
 
 const activeScenics = (day: VideoDay, progress: number, thresholds: number[]): {spot: ScenicInfo; local: number; slot: number; key: string}[] => {
@@ -466,6 +466,8 @@ export const AmapRouteVideo: React.FC<Props> = ({data, amapKey, amapSecurityCode
       amapKey={amapKey}
       amapSecurityCode={amapSecurityCode}
       staticMapImage={data.staticMapImage}
+      hillshade={data.presentation?.hillshade === true}
+      hillshadeEndpoint={data.hillshadeEndpoint}
     />
   );
 

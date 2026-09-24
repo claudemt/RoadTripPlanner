@@ -5,6 +5,7 @@ work.md
 .claude/
 # Author private local data (not published)
 data/routes/
+data/cache/
 config/local.env
 .env
 .env.local

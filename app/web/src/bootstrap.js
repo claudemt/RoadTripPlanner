@@ -54,9 +54,10 @@ if (accountEmail) {
 }
 await import('./config/amapConfig.js');
 await import('./api/localServiceClient.js');
-await import('./api/appServiceClient.js');
 await import('./map/mapProvider.js');
 await import('./map/amapProvider.js');
+await import('./features/map/mapPresentation.js');
+await import('./features/map/pointInfoController.js');
 await import('./domain/routeModel.js');
 await import('./utils/format.js');
 await import('./utils/html.js');

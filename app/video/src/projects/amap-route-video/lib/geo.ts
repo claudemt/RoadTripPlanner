@@ -59,17 +59,17 @@ const labelCandidates = (primary: LabelBox, gap: number) => {
   return candidates;
 };
 
-export const layoutPointLabels = (items: LabelLayoutItem[], width: number, height: number): Map<string, LabelBox> => {
+export const layoutPointLabels = (items: LabelLayoutItem[], width: number, height: number, avoidRects: LabelBox[] = []): Map<string, LabelBox> => {
   const scale = clamp(Math.min(width / 1280, height / 720), 0.9, 1.35);
   const fontSize = 14 * scale;
-  const labelHeight = 27 * scale;
   const gap = 8 * scale;
   const placed: LabelBox[] = [];
   const result = new Map<string, LabelBox>();
 
   items.forEach((item) => {
-    const labelWidth = estimateLabelWidth(item.text, fontSize);
+    const labelWidth = Math.max(...item.text.split('\n').map((line) => estimateLabelWidth(line, fontSize)));
     const offset = item.labelOffset || {x: 0, y: 0};
+    const labelHeight = (item.text.includes('\n') ? 44 : 27) * scale;
     const primary: LabelBox = {
       x: item.x + 15 * scale + Number(offset.x || 0) * width,
       y: item.y - 56 * scale + Number(offset.y || 0) * height,
@@ -81,12 +81,13 @@ export const layoutPointLabels = (items: LabelLayoutItem[], width: number, heigh
     let bestScore = Number.POSITIVE_INFINITY;
     candidates.forEach((candidate, index) => {
       const overlap = placed.reduce((total, previous) => total + overlapArea(candidate, previous), 0);
+      const avoided = avoidRects.reduce((total, rect) => total + overlapArea(candidate, rect), 0);
       const outside = Math.max(0, -candidate.x)
         + Math.max(0, -candidate.y)
         + Math.max(0, candidate.x + candidate.width - width)
         + Math.max(0, candidate.y + candidate.height - height);
       const distance = Math.hypot(candidate.x - primary.x, candidate.y - primary.y);
-      const score = overlap * 100 + outside * 30 + distance * 0.04 + index * 0.001;
+      const score = overlap * 100 + avoided * 100 + outside * 30 + distance * 0.04 + index * 0.001;
       if (score < bestScore) {
         best = candidate;
         bestScore = score;

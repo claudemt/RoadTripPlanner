@@ -7,6 +7,10 @@ const {spawn} = require('child_process');
 const {createCommunityService} = require('./community-service');
 const {createRuntimeConfig} = require('./config/runtime-config');
 const {validateRouteData, assertMapLayer} = require('./validation/route-validation');
+const {createPointInfoService} = require('./services/point-info-service');
+const {createHillshadeService} = require('./services/hillshade-service');
+const {createMapEnhancementRoutes} = require('./routes/map-enhancement-routes');
+const weatherCodeMap = require('../shared/weather-codes.json');
 let createSupabaseClient = null;
 try {
   ({createClient: createSupabaseClient} = require('@supabase/supabase-js'));
@@ -19,6 +23,7 @@ try {
 const runtimeConfig = createRuntimeConfig(path.dirname(__dirname));
 const {
   amapRoot: AMAP_ROOT,
+  dataRoot: DATA_ROOT,
   configRoot: CONFIG_ROOT,
   remotionRoot: REMOTION_ROOT,
   remotionData: REMOTION_DATA,
@@ -51,7 +56,17 @@ const {
   routeAssetSignedUrlSeconds: ROUTE_ASSET_SIGNED_URL_SECONDS,
   keyCandidates: KEY_CANDIDATES,
   nodeModuleRoots: NODE_MODULE_ROOTS,
+  hillshade: HILLSHADE_CONFIG,
+  pointInfo: POINT_INFO_CONFIG,
 } = runtimeConfig;
+
+const pointInfoService = createPointInfoService({
+  dataRoot: DATA_ROOT,
+  weatherProvider: POINT_INFO_CONFIG.weatherProvider,
+  elevationProvider: POINT_INFO_CONFIG.elevationProvider,
+  weatherTtlMinutes: POINT_INFO_CONFIG.weatherTtlMinutes,
+});
+const hillshadeService = createHillshadeService({dataRoot: DATA_ROOT, ...HILLSHADE_CONFIG});
 
 const firstHeaderValue = (value) => {
   if (Array.isArray(value)) return value[0] || '';
@@ -186,6 +201,15 @@ const prepareRemotionPublicDir = (videoData) => {
     ensureDir(path.dirname(target));
     fs.copyFileSync(source, target);
   });
+  if (videoData?.presentation?.weather) {
+    const weatherDir = path.join(REMOTION_ROOT, 'public', 'weather');
+    if (fs.existsSync(weatherDir)) {
+      ensureDir(path.join(tempDir, 'weather'));
+      fs.readdirSync(weatherDir)
+        .filter((name) => name.toLowerCase().endsWith('.svg'))
+        .forEach((name) => fs.copyFileSync(path.join(weatherDir, name), path.join(tempDir, 'weather', name)));
+    }
+  }
   return tempDir;
 };
 
@@ -370,6 +394,8 @@ const toBasicRouteData = (routeData) => {
     id: routeData.id || routeData.name || 'untitled-route',
     name: routeData.name || '未命名线路',
     segmentCache: toBasicSegmentCache(routeData.segmentCache),
+    presentation: routeData.presentation || {mapLayer: 'standard', hillshade: false, weather: false, elevation: false, startDate: null},
+    pointInfoCache: routeData.pointInfoCache || {version: 1, days: {}},
     days: (routeData.days || []).map((day, dayIndex) => {
       const points = day.points || [day.from, ...(day.waypoints || []), day.to].filter(Boolean);
       return {
@@ -501,7 +527,7 @@ const readBody = (req, maxBytes = MAX_BODY) =>
     req.on('error', reject);
   });
 
-const getRouteName = (payload) => stripDayPrefix(payload?.route?.name || payload?.videoData?.route?.name || payload?.routeData?.name) || '未命名线路';
+const getRouteName = (payload) => stripDayPrefix(payload?.routeData?.name || payload?.videoData?.route?.name) || '未命名线路';
 
 const stripDayPrefix = (value) => String(value || '').replace(/^\s*D\s*\d+\s*[：:、.．-]?\s*/i, '').trim();
 
@@ -570,6 +596,30 @@ const scenicImagesForManual = (spot, outputDir, limit = 4) =>
     .slice(0, limit)
     .map((src) => toMarkdownImagePath(src, outputDir));
 
+const weatherLabel = (code) => {
+  return weatherCodeMap[String(Number(code))]?.label || '未知天气';
+};
+
+const weatherIconName = (code) => {
+  return weatherCodeMap[String(Number(code))]?.icon || 'cloudy';
+};
+
+const weatherIconForManual = (code, outputDir) => {
+  const name = `${weatherIconName(code)}.svg`;
+  const built = path.join(PUBLIC_ROOT, 'weather', name);
+  const source = path.join(path.dirname(__dirname), 'web', 'assets', 'weather', name);
+  return toMarkdownImagePath(fs.existsSync(built) ? built : source, outputDir);
+};
+
+const pointFactsForManual = (point, presentation) => {
+  const values = [];
+  if (presentation?.elevation && Number.isFinite(Number(point?.elevationM))) values.push(`${Math.round(Number(point.elevationM) / 10) * 10} m`);
+  if (presentation?.weather && point?.weather) {
+    values.push(`${Math.round(Number(point.weather.minC))}–${Math.round(Number(point.weather.maxC))} °C · ${weatherLabel(point.weather.code)}`);
+  }
+  return values.join(' · ');
+};
+
 const buildTravelManual = (videoData, routeData, options = {}) => {
   const routeName = videoData?.route?.name || routeData?.name || '自驾路线';
   const days = videoData?.days || [];
@@ -609,6 +659,13 @@ const buildTravelManual = (videoData, routeData, options = {}) => {
       const role = point.kind === 'from' ? '起点' : point.kind === 'to' ? '终点' : '途径点';
       const scenic = point.scenic || null;
       lines.push(`- **${role}｜${mdEscape(point.name)}**`);
+      const facts = pointFactsForManual(point, videoData?.presentation);
+      if (facts) {
+        const icon = videoData?.presentation?.weather && point.weather
+          ? ` ![${weatherLabel(point.weather.code)}](<${weatherIconForManual(point.weather.code, options.outputDir)}>)`
+          : '';
+        lines.push(`  - ${facts}${icon}`);
+      }
       if (point.kind !== 'from' && scenic?.description) lines.push(`  - ${mdEscape(scenic.description)}`);
       const images = point.kind === 'from' ? [] : scenicImagesForManual(scenic, options.outputDir);
       if (images.length) {
@@ -629,10 +686,17 @@ const escapeHtml = (value) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-const inlineMd = (value) => {
-  let text = escapeHtml(value);
+const inlineMd = (value, baseDir) => {
+  const images = [];
+  let source = String(value || '').replace(/!\[([^\]]*)\]\((?:<([^>]+)>|([^)]+))\)/g, (_, alt, angled, plain) => {
+    const token = `@@INLINE_IMAGE_${images.length}@@`;
+    images.push(`<img class="inline-weather-icon" src="${escapeHtml(resolveMarkdownImageSrc(angled || plain, baseDir))}" alt="${escapeHtml(alt || '天气')}" />`);
+    return token;
+  });
+  let text = escapeHtml(source);
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/`(.+?)`/g, '<code>$1</code>');
+  images.forEach((image, index) => { text = text.replace(`@@INLINE_IMAGE_${index}@@`, image); });
   return text;
 };
 
@@ -684,7 +748,7 @@ const markdownToHtmlDocument = (markdown, title, baseDir = AMAP_ROOT) => {
     if (heading) {
       closeList();
       const level = heading[1].length;
-      parts.push(`<h${level}>${inlineMd(heading[2])}</h${level}>`);
+      parts.push(`<h${level}>${inlineMd(heading[2], baseDir)}</h${level}>`);
       continue;
     }
     const image = line.match(/^!\[([^\]]*)\]\((?:<([^>]+)>|([^)]+))\)\s*$/);
@@ -701,11 +765,11 @@ const markdownToHtmlDocument = (markdown, title, baseDir = AMAP_ROOT) => {
         parts.push('<ul>');
         inList = true;
       }
-      parts.push(`<li>${inlineMd(bullet[1])}</li>`);
+      parts.push(`<li>${inlineMd(bullet[1], baseDir)}</li>`);
       continue;
     }
     closeList();
-    parts.push(`<p>${inlineMd(line)}</p>`);
+    parts.push(`<p>${inlineMd(line, baseDir)}</p>`);
   }
   closeList();
   return `<!doctype html>
@@ -714,9 +778,16 @@ const markdownToHtmlDocument = (markdown, title, baseDir = AMAP_ROOT) => {
   <meta charset="utf-8" />
   <title>${escapeHtml(title || '路线手册')}</title>
   <style>
+    @font-face {
+      font-family: 'Noto Sans SC';
+      src: url('${toFileUrl(path.join(__dirname, 'assets', 'NotoSansSC-Regular.otf'))}') format('opentype');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
     @page { margin: 18mm 16mm; }
     body {
-      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+      font-family: "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif;
       color: #1f2937;
       line-height: 1.65;
       font-size: 13px;
@@ -730,6 +801,7 @@ const markdownToHtmlDocument = (markdown, title, baseDir = AMAP_ROOT) => {
     ul { margin: 0 0 10px 1.2em; padding: 0; }
     figure { margin: 10px 0 16px; page-break-inside: avoid; break-inside: avoid; }
     img { display: block; max-width: 100%; max-height: 138mm; object-fit: contain; border-radius: 10px; border: 1px solid #e5e7eb; }
+    img.inline-weather-icon { display: inline-block; width: 16px; height: 16px; margin-left: 4px; vertical-align: -3px; border: 0; border-radius: 0; }
     figcaption { margin-top: 4px; color: #64748b; font-size: 11px; text-align: center; }
     .manual-image-grid { width: 100%; border-collapse: collapse; margin: 8px 0 14px; page-break-inside: avoid; break-inside: avoid; }
     .manual-image-grid td { width: 50%; padding: 0 5px 8px; vertical-align: top; border: 0; }
@@ -1062,7 +1134,7 @@ const listCloudRoutes = async (identity) => {
 const saveCloudRoute = async (payload, identity) => {
   const supabase = requireSupabaseClient();
   if (!identity?.email) throw new Error('缺少用户邮箱，无法保存路线。');
-  const routeData = validateRouteData(payload?.routeData || payload?.route);
+  const routeData = validateRouteData(payload?.routeData);
   const id = normalizeCloudRouteId(routeData);
   const normalizedRoute = {...routeData, id};
   const row = {
@@ -1895,6 +1967,10 @@ const buildScriptVideoData = (routeData, mapLayer = 'standard', override = null)
         transportMode: point.transportMode || 'drive',
         labelOffset: point.labelOffset || {x: 0, y: 0},
         scenic: point.useScenic === false ? null : point.scenic || null,
+        ...(Number.isFinite(Number(routeData.pointInfoCache?.days?.[dayIndex]?.points?.[pointIndex]?.elevationM))
+          ? {elevationM: Number(routeData.pointInfoCache.days[dayIndex].points[pointIndex].elevationM)} : {}),
+        ...(routeData.pointInfoCache?.days?.[dayIndex]?.points?.[pointIndex]?.weather
+          ? {weather: routeData.pointInfoCache.days[dayIndex].points[pointIndex].weather} : {}),
       }));
     const cached = routeData.segmentCache?.[dayIndex]?.segments || [];
     const segments = points.slice(0, -1).map((from, index) => {
@@ -1924,9 +2000,10 @@ const buildScriptVideoData = (routeData, mapLayer = 'standard', override = null)
   const lngs = allPoints.map((point) => point.lng);
   const lats = allPoints.map((point) => point.lat);
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    mapLayer,
+    mapLayer: routeData.presentation?.mapLayer || mapLayer,
+    presentation: routeData.presentation || {mapLayer, hillshade: false, weather: false, elevation: false, startDate: null},
     renderSpeed: 1,
     route: {id: routeData.id, name: routeData.name || '自驾路线'},
     days,
@@ -1937,6 +2014,50 @@ const buildScriptVideoData = (routeData, mapLayer = 'standard', override = null)
       bounds: lngs.length ? [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)] : [0, 0, 0, 0],
     },
   };
+};
+
+const routeGeoSignature = (day) => JSON.stringify(
+  [day?.from, ...(day?.waypoints || []), day?.to].map((point) => [
+    String(point?.name || ''), Number(point?.lng).toFixed(6), Number(point?.lat).toFixed(6),
+  ])
+);
+
+const prepareScriptPointInfo = async (routeData) => {
+  const presentation = routeData?.presentation;
+  if (!presentation?.weather && !presentation?.elevation) return routeData;
+  try {
+    const result = await pointInfoService.getPointInfo({
+      startDate: presentation.startDate,
+      weather: presentation.weather === true,
+      elevation: presentation.elevation === true,
+      days: (routeData.days || []).map((day) => ({
+        points: [day.from, ...(day.waypoints || []), day.to]
+          .filter((point) => point && Number.isFinite(Number(point.lng)) && Number.isFinite(Number(point.lat)))
+          .map((point) => ({name: point.name, lng: Number(point.lng), lat: Number(point.lat)})),
+      })),
+    });
+    routeData.pointInfoCache = routeData.pointInfoCache || {version: 1, days: {}};
+    routeData.pointInfoCache.days = routeData.pointInfoCache.days || {};
+    (result.days || []).forEach((dayInfo, dayIndex) => {
+      routeData.pointInfoCache.days[dayIndex] = {
+        geoSignature: routeGeoSignature(routeData.days[dayIndex]),
+        date: dayInfo.date || null,
+        weatherFetchedAt: presentation.weather ? new Date().toISOString() : null,
+        points: dayInfo.points || [],
+      };
+    });
+    if (presentation.weather) {
+      const complete = (result.days || []).every((dayInfo, dayIndex) => {
+        const expected = [routeData.days[dayIndex]?.from, ...(routeData.days[dayIndex]?.waypoints || []), routeData.days[dayIndex]?.to]
+          .filter((point) => point && Number.isFinite(Number(point.lng)) && Number.isFinite(Number(point.lat))).length;
+        return expected === 0 || (dayInfo.points || []).slice(0, expected).every((info) => info?.weather);
+      });
+      if (!complete) presentation.weather = false;
+    }
+  } catch (_) {
+    if (presentation.weather) presentation.weather = false;
+  }
+  return routeData;
 };
 
 const getRoutePointByPosition = (routeData, dayNumber, position) => {
@@ -2385,7 +2506,7 @@ const archivePayload = (payload, routeRoot, identity) => {
   const dir = path.join(routeRoot, name);
   ensureDir(dir);
 
-  const routeData = payload.routeData || payload.route || null;
+  const routeData = payload.routeData || null;
   const videoData = payload.videoData || null;
   const routeMapImage = path.join(dir, `${name}.route-map.png`);
   const mapBgImage = path.join(dir, `${name}.map-bg.png`);
@@ -2594,16 +2715,19 @@ const runRemotionStill = ({videoData, output, config, logFile, frame = 12, progr
     });
   });
 
-const mapBackgroundSignature = (videoData, width, height) =>
-  sha256Buffer(Buffer.from(JSON.stringify({
+const mapBackgroundSignature = (videoData, width, height) => {
+  const routeGeometryHash = sha256Buffer(Buffer.from(JSON.stringify(
+    (videoData?.days || []).flatMap((day) => (day.segments || []).map((segment) => segment.path || []))
+  )));
+  return sha256Buffer(Buffer.from(JSON.stringify({
+    renderVersion: 2,
     width,
     height,
-    mapLayer: videoData?.mapLayer || 'standard',
-    days: (videoData?.days || []).map((day) => (day.points || []).map((point) => [
-      Number(point?.lng || 0),
-      Number(point?.lat || 0),
-    ])),
+    mapLayer: videoData?.presentation?.mapLayer || videoData?.mapLayer || 'standard',
+    hillshade: videoData?.presentation?.hillshade === true,
+    routeGeometryHash,
   })));
+};
 
 const findRouteJson = (dir, entryName) => {
   const preferred = path.join(dir, `${entryName}.route.json`);
@@ -2699,8 +2823,12 @@ const serveStatic = (req, res, identity) => {
                 ? 'application/pdf'
                 : ext === '.mp4'
                   ? 'video/mp4'
-                  : ext === '.png'
+                 : ext === '.png'
                     ? 'image/png'
+                    : ext === '.webp'
+                      ? 'image/webp'
+                      : ext === '.svg'
+                        ? 'image/svg+xml'
                     : ext === '.jpg' || ext === '.jpeg'
                       ? 'image/jpeg'
                       : 'application/octet-stream';
@@ -2717,7 +2845,7 @@ const serveStatic = (req, res, identity) => {
 
 const uploadExportedRouteAssets = async (payload, exported, identity) => {
   const supabase = getSupabaseClient();
-  const routeData = payload.routeData || payload.route || null;
+  const routeData = payload.routeData || null;
   if (!supabase || !identity?.email || !routeData?.days) return null;
   const routeId = normalizeCloudRouteId(routeData);
   const routeName = String(routeData.name || exported.routeName || '路线').trim() || '路线';
@@ -2804,7 +2932,10 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
   let mapBgImage = null;
   let mapBgError = null;
   let videoError = null;
-  const baseVideoData = payload.videoData || {};
+  const baseVideoData = {
+    ...(payload.videoData || {}),
+    hillshadeEndpoint: `http://127.0.0.1:${PORT}/api/map/hillshade`,
+  };
   if (renderVideo) {
     try {
       assertExportNotCancelled();
@@ -2900,7 +3031,7 @@ const exportRouteBundle = async (payload, routeRoot, identity) => {
   } catch (error) {
     routeMapError = error.message;
     routeMapImage = null;
-    archived.manualText = buildTravelManual(payload.videoData, payload.routeData || payload.route, {outputDir: archived.dir});
+    archived.manualText = buildTravelManual(payload.videoData, payload.routeData, {outputDir: archived.dir});
     if (archived.manualMd) writeFileAtomic(archived.manualMd, archived.manualText);
   }
 
@@ -2965,7 +3096,7 @@ const runManualExportJob = async (task, payload, identity) => {
       assetUploadError: exported.assetUploadError || null,
     };
     const missing = [
-      exported.output ? null : 'MP4',
+      payload.renderVideo === true && !exported.output ? 'MP4' : null,
       exported.routeMapImage ? null : '路线总览 PNG',
       exported.manualPdf ? null : 'PDF',
       exported.assetUploadError ? '云端产品资产' : null,
@@ -2991,8 +3122,9 @@ const queueManualExportTask = (payload, identity) => {
     error.code = 'EXPORT_RUNNING';
     throw error;
   }
+  if (!payload?.routeData) throw new Error('缺少 routeData');
   if (!payload?.videoData) throw new Error('缺少 videoData');
-  if (payload.routeData || payload.route) validateRouteData(payload.routeData || payload.route);
+  validateRouteData(payload.routeData);
   const task = createExportTask(identity.email);
   latestExportsByOwner.set(identity.email, task);
   activeExport = task;
@@ -3077,6 +3209,13 @@ const pumpPublishedRouteJobs = async () => {
   }
 };
 
+const handleMapEnhancementRoute = createMapEnhancementRoutes({
+  pointInfoService,
+  hillshadeService,
+  readBody,
+  send,
+});
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') return send(res, 204, {});
@@ -3104,10 +3243,11 @@ const server = http.createServer(async (req, res) => {
           serverExport: true,
           editableMapConfig: !isSupabaseConfigured() || isAdminIdentity(identity),
           supabase: isSupabaseConfigured(),
+          pointInfoWeatherTtlMinutes: POINT_INFO_CONFIG.weatherTtlMinutes,
         },
       });
     }
-    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/health' && REQUIRE_USER_EMAIL && !identity.email) {
+    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/health' && !url.pathname.startsWith('/api/map/hillshade/') && REQUIRE_USER_EMAIL && !identity.email) {
       return send(res, 401, {ok: false, message: `缺少 Caddy 用户邮箱请求头：${USER_EMAIL_HEADER}`});
     }
     if (req.method === 'GET' && url.pathname === '/api/health') {
@@ -3119,6 +3259,7 @@ const server = http.createServer(async (req, res) => {
         supabaseConfigured: isSupabaseConfigured(),
       });
     }
+    if (await handleMapEnhancementRoute(req, res, url)) return;
     if (req.method === 'GET' && url.pathname === '/api/config') {
       const keys = readKeyFile();
       const cloud = await readCloudConfig();
@@ -3228,7 +3369,6 @@ const server = http.createServer(async (req, res) => {
           routePoints: '/api/v1/routes/:id/points',
           routeExport: '/api/v1/routes/:id/export',
           exportStatus: '/api/v1/exports/:taskId',
-          exportProgress: '/api/v1/export-progress',
           exportCancel: '/api/v1/exports/:taskId/cancel',
           routeZip: '/api/v1/routes/:id/product.zip',
           publishedRoutes: '/api/v1/published-routes',
@@ -3249,6 +3389,7 @@ const server = http.createServer(async (req, res) => {
           publishedRoutes: isSupabaseConfigured(),
           serverExport: true,
           sharedScenes: true,
+          pointInfoWeatherTtlMinutes: POINT_INFO_CONFIG.weatherTtlMinutes,
         },
       });
     }
@@ -3293,7 +3434,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length, -'/export'.length));
         const payload = await readBody(req, 220 * 1024 * 1024);
-        const suppliedRoute = payload.routeData || payload.route;
+        const suppliedRoute = payload.routeData;
         const row = suppliedRoute
           ? {
             id: routeId || suppliedRoute.id,
@@ -3305,6 +3446,7 @@ const server = http.createServer(async (req, res) => {
         const routeData = structuredClone(row.route_data);
         if (routeId && !routeData.id) routeData.id = routeId;
         validateRouteData(routeData);
+        if (!payload.videoData) await prepareScriptPointInfo(routeData);
         const mapLayer = String(payload.mapLayer || row.map_layer || 'standard').trim() || 'standard';
         const exportPayload = {
           routeData,
@@ -3344,7 +3486,8 @@ const server = http.createServer(async (req, res) => {
       try {
         const routeId = decodeURIComponent(url.pathname.slice('/api/v1/routes/'.length));
         const payload = await readBody(req, 8 * 1024 * 1024);
-        const routeData = structuredClone(payload.routeData || payload.route || payload);
+        if (!payload.routeData) throw new Error('缺少 routeData');
+        const routeData = structuredClone(payload.routeData);
         routeData.id = routeId;
         const result = await saveCloudRoute({routeData, mapLayer: payload.mapLayer}, identity);
         return send(res, 200, result);
@@ -3371,20 +3514,6 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         return send(res, Number(error.status) || 500, {ok: false, message: error.message});
       }
-    }
-    if (req.method === 'GET' && url.pathname === '/api/v1/export-progress') {
-      return send(res, 200, getExportProgressForOwner(identity.email));
-    }
-    if (req.method === 'POST' && url.pathname === '/api/v1/export-cancel') {
-      if (activeExport?.publishJob && activeExport.ownerEmail === identity.email) {
-        return send(res, 200, {...getExportProgressForOwner(identity.email), cancelled: false, message: '公共路线产品正在后台生成，暂不可取消'});
-      }
-      const cancelled = cancelActiveExport(identity.email);
-      return send(res, 200, {
-        ...getExportProgressForOwner(identity.email),
-        cancelled,
-        message: cancelled ? undefined : '当前没有可终止的导出任务',
-      });
     }
     if (req.method === 'POST' && url.pathname.startsWith('/api/v1/exports/') && url.pathname.endsWith('/cancel')) {
       const taskId = decodeURIComponent(url.pathname.slice('/api/v1/exports/'.length, -'/cancel'.length));

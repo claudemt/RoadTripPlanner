@@ -1,6 +1,6 @@
 {
   "name": "road-trip-planner-workspace",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Caddy-authenticated road trip planner workspace",
   "workspaces": [
@@ -13,7 +13,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "local": "node server/route-render-server.js",
     "cli": "node scripts/roadtrip-cli.js",
-    "test": "node --test test/route-validation.test.js",
+    "test": "node --test test/route-validation.test.js test/coordinate-transform.test.js test/point-info-service.test.js test/hillshade-service.test.js test/map-enhancement-routes.test.js test/point-info-controller.test.js",
+    "release:check": "npm test && npm run build && npm run typecheck && node --check server/route-render-server.js && node --check server/routes/map-enhancement-routes.js",
     "diagnose-asset-url": "node scripts/diagnose-asset-url.js",
     "studio": "npm --workspace video run studio",
     "typecheck": "npm --workspace video run typecheck"
@@ -24,7 +25,11 @@
   "devDependencies": {
     "vite": "^8.1.4"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "optionalDependencies": {
-    "@rspack/binding-linux-x64-gnu": "^1.7.11"
+    "@rspack/binding-linux-x64-gnu": "^1.7.11",
+    "sharp": "^0.35.4"
   }
 }

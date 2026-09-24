@@ -28,6 +28,19 @@
       if (provider) provider.setLayer(layer);
     }
 
+    function setHillshade(enabled) {
+      if (provider) provider.setHillshade(enabled);
+    }
+
+    function buildCompositeLabel({item, dayIndex, pointInfo, presentation}) {
+      const title = `D${dayIndex + 1}-${item.role} ${escapeHtml(item.point.name)}`;
+      const facts = window.MapPresentation.formatFacts(pointInfo, presentation);
+      const icon = presentation?.weather && pointInfo?.weather
+        ? `<img class="route-marker-weather-icon" src="${window.MapPresentation.weatherMeta(pointInfo.weather.code).iconUrl}" alt="${escapeHtml(window.MapPresentation.weatherMeta(pointInfo.weather.code).label)}" />`
+        : '';
+      return `<div class="marker-label route-marker-label" data-route-label-key="${dayIndex}:${item.kind}:${item.waypointIndex ?? ''}"><div class="route-marker-title">${title}</div>${facts ? `<div class="route-marker-facts"><span>${escapeHtml(facts)}</span>${icon}</div>` : ''}</div>`;
+    }
+
     function normalizePathPoint(point) {
       const lng = Array.isArray(point) ? Number(point[0]) : Number(point?.lng);
       const lat = Array.isArray(point) ? Number(point[1]) : Number(point?.lat);
@@ -39,7 +52,7 @@
       return path.map(normalizePathPoint).filter(Boolean);
     }
 
-    function render({route, segmentResults, currentRouteView, fit = true, onMarkerClick, onLabelDrag}) {
+    function render({route, segmentResults, currentRouteView, pointInfo, presentation, fit = true, onMarkerClick, onLabelDrag}) {
       if (!provider) return;
       provider.clearOverlays();
       const overlays = [];
@@ -48,15 +61,20 @@
       route.days.forEach((day, dayIndex) => {
         if (currentRouteView !== 'all' && Number(currentRouteView) !== dayIndex) return;
         const points = getDayPoints(day).filter((item) => isPointReady(item.point));
-        points.forEach((item) => {
+        points.forEach((item, pointIndex) => {
           const color = item.role === '起'
             ? '#16a34a'
             : item.role === '终'
               ? '#ef4444'
               : routeColors[dayIndex % routeColors.length];
+          const cachedDay = pointInfo?.days?.[dayIndex];
+          const dateMatches = !presentation?.weather || cachedDay?.date === window.MapPresentation.addDays(presentation.startDate, dayIndex);
+          const geoMatches = cachedDay?.geoSignature === window.RouteModel.geoSignature(day);
+          const cachedInfo = geoMatches ? (cachedDay?.points?.[pointIndex] || {}) : {};
+          const info = dateMatches ? cachedInfo : {...cachedInfo, weather: undefined};
           const marker = provider.addMarker({
             point: item.point,
-            label: `<div class="marker-label route-marker-label" data-route-label-key="${dayIndex}:${item.kind}:${item.waypointIndex ?? ''}">D${dayIndex + 1}-${item.role} ${escapeHtml(item.point.name)}</div>`,
+            label: buildCompositeLabel({item, dayIndex, pointInfo: info, presentation}),
             color,
             text: item.role,
             labelOffset: item.point.labelOffset,
@@ -152,6 +170,7 @@
       createMap,
       isReady,
       setLayer,
+      setHillshade,
       render,
       clear,
       calculateDaySegments,

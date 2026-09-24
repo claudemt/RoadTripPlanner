@@ -9,7 +9,7 @@ const outputRoot = path.join(appRoot, 'dist');
 export default defineConfig({
   root: webRoot,
   envDir: appRoot,
-  publicDir: false,
+  publicDir: path.join(webRoot, 'assets'),
   base: '/',
   build: {
     outDir: outputRoot,

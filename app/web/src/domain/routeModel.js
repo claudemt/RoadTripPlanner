@@ -67,6 +67,37 @@
     }, {});
   }
 
+  function normalizePresentation(value) {
+    return window.MapPresentation?.normalize(value) || {
+      mapLayer: 'standard', hillshade: false, weather: false, elevation: false, startDate: null
+    };
+  }
+
+  function normalizePointInfoCache(value) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const days = source.days && typeof source.days === 'object' && !Array.isArray(source.days) ? source.days : {};
+    const normalizedDays = {};
+    Object.entries(days).slice(0, 365).forEach(([dayIndex, day]) => {
+      if (!day || typeof day !== 'object' || !Array.isArray(day.points)) return;
+      normalizedDays[dayIndex] = {
+        geoSignature: String(day.geoSignature || '').slice(0, 50000),
+        date: /^\d{4}-\d{2}-\d{2}$/.test(String(day.date || '')) ? String(day.date) : null,
+        weatherFetchedAt: day.weatherFetchedAt || null,
+        points: day.points.slice(0, 202).map((info) => {
+          const result = {};
+          if (Number.isFinite(Number(info?.elevationM))) result.elevationM = Math.round(Number(info.elevationM) / 10) * 10;
+          if (info?.weather && [info.weather.minC, info.weather.maxC, info.weather.code].every((item) => Number.isFinite(Number(item)))
+            && /^\d{4}-\d{2}-\d{2}$/.test(String(info.weather.date || day.date || ''))) result.weather = {
+            date: String(info.weather.date || day.date || '').slice(0, 10),
+            minC: Number(info.weather.minC), maxC: Number(info.weather.maxC), code: Number(info.weather.code)
+          };
+          return result;
+        })
+      };
+    });
+    return {version: 1, days: normalizedDays};
+  }
+
   function normalizePoint(point, fallbackName, allowIncomplete = false) {
     if (!point) {
       return allowIncomplete ? { name: fallbackName || '', lng: null, lat: null, transportMode: 'drive', labelOffset: {x: 0, y: 0} } : null;
@@ -100,6 +131,8 @@
     }));
     if (!next.days.length) next.days = structuredClone(defaultDays);
     next.segmentCache = normalizeSegmentCache(next.segmentCache);
+    next.presentation = normalizePresentation(next.presentation);
+    next.pointInfoCache = normalizePointInfoCache(next.pointInfoCache);
     return next;
   }
 
@@ -142,6 +175,12 @@
     ]));
   }
 
+  function geoSignature(day) {
+    return JSON.stringify(getDayPoints(day).map(({point}) => [
+      String(point?.name || ''), Number(point?.lng).toFixed(6), Number(point?.lat).toFixed(6)
+    ]));
+  }
+
   window.RouteModel = {
     cleanDayTitle,
     cleanRouteName,
@@ -152,6 +191,9 @@
     createBlankRoute,
     isPointReady,
     getDayPoints,
-    daySignature
+    daySignature,
+    geoSignature,
+    normalizePresentation,
+    normalizePointInfoCache
   };
 })();

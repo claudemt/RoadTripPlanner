@@ -1,7 +1,7 @@
 const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     const STORAGE_KEY = `tour-driving-route-planner:v4:${runtime.user?.id || runtime.mode || 'local'}`;
     const ROUTE_COLORS = ['#1677ff', '#16a34a', '#f59e0b', '#a855f7', '#ef4444', '#06b6d4', '#64748b'];
-    const localService = window.AppServiceClient.create();
+    const localService = window.LocalServiceClient.create(runtime);
     const el = (id) => document.getElementById(id);
     const dialogs = window.DialogController.create();
 
@@ -25,6 +25,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       isPointReady,
       getDayPoints,
       daySignature,
+      geoSignature,
       normalizeLabelOffset
     } = window.RouteModel;
     const {normalizeTransportMode} = window.RouteModel;
@@ -112,7 +113,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     let routeBook = routeStore.load();
     let route = routeStore.getActive(routeBook);
-    let currentMapLayer = localStorage.getItem('amap-planner-map-layer') || 'standard';
+    route = route ? normalizeRoute(route) : route;
+    let currentMapLayer = route?.presentation?.mapLayer || localStorage.getItem('amap-planner-map-layer') || 'standard';
     let segmentResults = [];
     let currentRouteView = 'all';
     let cloudSaveTimer = null;
@@ -125,6 +127,22 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     let accountPublicScenes = [];
     let eventsBound = false;
     const busyActions = new Set();
+    const pointInfo = window.PointInfoController.create({
+      localService,
+      getDayPoints,
+      isPointReady,
+      geoSignature,
+      addDays: window.MapPresentation.addDays,
+      weatherTtlMinutes: runtime.capabilities?.pointInfoWeatherTtlMinutes,
+      onUpdated: (targetRoute) => {
+        if (targetRoute !== route) return;
+        routeStore.save(routeBook);
+        renderMarkersAndSegments(false);
+      },
+      onError: (error, silent) => {
+        if (!silent) toast(error.message || '点位信息暂时不可用。');
+      }
+    });
 
     function setButtonBusy(id, busy, busyText = '处理中…') {
       const button = el(id);
@@ -177,16 +195,22 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       return (targetRoute?.days || []).map((day, dayIndex) => {
         const cached = targetRoute?.segmentCache?.[dayIndex];
         const expectedSegments = Math.max(0, getDayPoints(day).filter((item) => isPointReady(item.point)).length - 1);
-        const signatureMatches = cached?.signature && cached.signature === daySignature(day);
-        const legacyShapeMatches = !cached?.signature && Array.isArray(cached?.segments) && cached.segments.length >= expectedSegments;
-        return cached && Array.isArray(cached.segments) && (signatureMatches || legacyShapeMatches)
+        const signatureMatches = cached?.signature === daySignature(day);
+        return cached && Array.isArray(cached.segments) && cached.segments.length >= expectedSegments && signatureMatches
           ? {segments: cached.segments}
           : {segments: []};
       });
     }
 
-    function hasCachedRouteSegments(targetRoute = route) {
-      return segmentResultsFromCache(targetRoute).some((result) => result.segments.length > 0);
+    function hasCompleteRouteSegments(targetRoute = route) {
+      return Boolean(targetRoute?.days?.every((day, dayIndex) => {
+        const readyPoints = getDayPoints(day).map((item) => item.point).filter(isPointReady);
+        if (readyPoints.length < 2) return true;
+        const cached = targetRoute.segmentCache?.[dayIndex];
+        const expected = readyPoints.length - 1;
+        return Boolean(cached && Array.isArray(cached.segments) && cached.segments.length >= expected
+          && cached.signature === daySignature(day));
+      }));
     }
 
     function applyCachedSegmentResults(targetRoute = route) {
@@ -221,11 +245,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
       getEditableRoute,
       buildPublishVideoData: async (targetRoute) => {
         const target = targetRoute || route;
-        return videoDataBuilder.build({
-          route: target,
-          segmentResults: segmentResultsFromCache(target),
-          currentMapLayer,
-          ensureScenicInfo
+        return buildVideoData({
+          routeData: target,
+          segmentData: segmentResultsFromCache(target),
+          mapLayer: target.presentation?.mapLayer || currentMapLayer
         });
       },
       onAssetsReady: () => {
@@ -338,6 +361,10 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         setMapLayer(next);
         toast(`地图类型：${next === 'standard' ? '标准' : next === 'satellite' ? '卫星' : '卫星+道路'}`);
       };
+      el('hillshadeToggle').onchange = () => updatePresentationFromControls('hillshade');
+      el('weatherToggle').onchange = () => updatePresentationFromControls('weather');
+      el('elevationToggle').onchange = () => updatePresentationFromControls('elevation');
+      el('startDateInput').onchange = () => updatePresentationFromControls('startDate');
       exportTasks.bind();
       el('spotCloseBtn').onclick = scenicController.closeSpotPanel;
       el('imageLightbox').onclick = scenicController.closeLightbox;
@@ -758,7 +785,77 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     function setMapLayer(layer) {
       currentMapLayer = layer || 'standard';
       localStorage.setItem('amap-planner-map-layer', currentMapLayer);
+      if (route) {
+        route.presentation = window.MapPresentation.normalize({...route.presentation, mapLayer: currentMapLayer});
+        persistPresentationPreference();
+        saveRoute(false);
+      }
       routeMap.setLayer(currentMapLayer);
+    }
+
+    function persistPresentationPreference() {
+      if (!route?.presentation) return;
+      localStorage.setItem('roadtrip-map-presentation', JSON.stringify(route.presentation));
+    }
+
+    function presentationDefaults() {
+      try { return window.MapPresentation.normalize(JSON.parse(localStorage.getItem('roadtrip-map-presentation') || 'null')); }
+      catch (_) { return window.MapPresentation.normalize(null); }
+    }
+
+    function syncPresentationControls() {
+      if (!route) {
+        ['hillshadeToggle', 'weatherToggle', 'elevationToggle'].forEach((id) => {
+          el(id).checked = false;
+          el(id).disabled = true;
+        });
+        el('startDateControl').hidden = true;
+        el('weatherRangeHint').hidden = true;
+        routeMap.setHillshade(false);
+        return;
+      }
+      route.presentation = window.MapPresentation.normalize(route.presentation || presentationDefaults());
+      currentMapLayer = route.presentation.mapLayer;
+      el('mapLayerSelect').value = currentMapLayer;
+      el('hillshadeToggle').disabled = false;
+      el('elevationToggle').disabled = false;
+      el('hillshadeToggle').checked = route.presentation.hillshade;
+      el('elevationToggle').checked = route.presentation.elevation;
+      const bounds = window.MapPresentation.dateBounds(route.days.length);
+      if (route.presentation.weather && bounds.enabled && (!route.presentation.startDate || route.presentation.startDate < bounds.min || route.presentation.startDate > bounds.max)) {
+        route.presentation.startDate = bounds.min;
+      }
+      el('weatherToggle').disabled = !bounds.enabled;
+      el('startDateInput').min = bounds.min;
+      el('startDateInput').max = bounds.max || bounds.min;
+      el('startDateInput').value = route.presentation.startDate || bounds.min;
+      el('weatherRangeHint').hidden = bounds.enabled;
+      el('weatherRangeHint').textContent = bounds.enabled ? '' : '当前路线超过天气预报可覆盖范围。';
+      if (!bounds.enabled && route.presentation.weather) route.presentation.weather = false;
+      el('weatherToggle').checked = route.presentation.weather;
+      el('startDateControl').hidden = !route.presentation.weather;
+      routeMap.setLayer(currentMapLayer);
+      routeMap.setHillshade(route.presentation.hillshade);
+    }
+
+    function updatePresentationFromControls(source) {
+      if (!route) return;
+      const bounds = window.MapPresentation.dateBounds(route.days.length);
+      const startDate = el('startDateInput').value || bounds.min;
+      route.presentation = window.MapPresentation.normalize({
+        ...route.presentation,
+        mapLayer: currentMapLayer,
+        hillshade: el('hillshadeToggle').checked,
+        weather: bounds.enabled && el('weatherToggle').checked,
+        elevation: el('elevationToggle').checked,
+        startDate
+      });
+      syncPresentationControls();
+      persistPresentationPreference();
+      saveRoute(false);
+      renderMarkersAndSegments(false);
+      if (source === 'hillshade') return;
+      pointInfo.schedule(route, true);
     }
 
     function hasAmapConfig() {
@@ -903,7 +1000,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     async function createRouteFromAccount({name, dayCount}) {
       const cleanName = cleanRouteName(name) || '未命名路线';
-      const next = normalizeRoute(createBlankRoute(cleanName, dayCount));
+      const next = normalizeRoute({...createBlankRoute(cleanName, dayCount), presentation: presentationDefaults()});
       const previousRoute = route;
       const previousActiveId = routeBook.activeRouteId;
       routeBook.routes.push(next);
@@ -998,6 +1095,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         id: next.id,
         name: next.name,
         segmentCache: next.segmentCache || {},
+        presentation: next.presentation,
+        pointInfoCache: next.pointInfoCache,
         days: next.days.map((day) => ({
           title: cleanDayTitle(day.title),
           from: day.from,
@@ -1009,10 +1108,15 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
 
     function renderAll(fit = true) {
       route = route ? normalizeRoute(route) : routeStore.getActive(routeBook) || null;
+      if (route) {
+        if (!route.presentation) route.presentation = presentationDefaults();
+      }
+      syncPresentationControls();
       renderRouteSelect();
       renderDaySelect();
       renderDays();
       renderMarkersAndSegments(fit);
+      pointInfo.schedule(route, false);
     }
 
     function renderRouteSelect() {
@@ -1040,6 +1144,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         route,
         segmentResults,
         currentRouteView,
+        pointInfo: route.pointInfoCache,
+        presentation: route.presentation,
         fit,
         onMarkerClick: ({item, dayIndex}) => {
           el('daySelect').value = String(dayIndex);
@@ -1134,7 +1240,7 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     }
 
     function scheduleBackgroundRouteCalculation() {
-      if (!routeMap.isReady() || !hasReadyRoutePoints(route) || hasCachedRouteSegments(route)) return;
+      if (!routeMap.isReady() || !hasReadyRoutePoints(route) || hasCompleteRouteSegments(route)) return;
       setTimeout(() => {
         calculateRoute({background: true, resetLabels: false}).catch((error) => {
           console.warn('Background route calculation failed:', error);
@@ -1420,6 +1526,24 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
     async function buildVideoData({routeData = route, segmentData = segmentResults, mapLayer = currentMapLayer} = {}) {
       const exportRoute = normalizeRoute(structuredClone(routeData));
       const exportSegments = structuredClone(segmentData || []);
+      if (exportRoute.presentation.weather || exportRoute.presentation.elevation) {
+        await pointInfo.refresh(exportRoute, {silent: true});
+      }
+      if (exportRoute.presentation.weather) {
+        const missingWeather = exportRoute.days.some((day, dayIndex) => {
+          const readyCount = getDayPoints(day).filter((item) => isPointReady(item.point)).length;
+          const cachedDay = exportRoute.pointInfoCache?.days?.[dayIndex];
+          const info = cachedDay?.points || [];
+          const expectedDate = window.MapPresentation.addDays(exportRoute.presentation.startDate, dayIndex);
+          return readyCount > 0 && (cachedDay?.geoSignature !== geoSignature(day) || cachedDay?.date !== expectedDate
+            || info.length < readyCount || info.slice(0, readyCount).some((item) => !item?.weather || item.weather.date !== expectedDate));
+        });
+        if (missingWeather) {
+          const continueWithoutWeather = confirm('天气数据暂时不可用。是否不含天气继续导出？');
+          if (!continueWithoutWeather) return null;
+          exportRoute.presentation.weather = false;
+        }
+      }
       for (let dayIndex = 0; dayIndex < exportRoute.days.length; dayIndex += 1) {
         const day = exportRoute.days[dayIndex];
         const expected = Math.max(0, getDayPoints(day).filter((item) => isPointReady(item.point)).length - 1);
@@ -1431,6 +1555,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
         route: exportRoute,
         segmentResults: exportSegments,
         currentMapLayer: mapLayer,
+        presentation: exportRoute.presentation,
+        pointInfo: exportRoute.pointInfoCache,
         ensureScenicInfo
       });
     }
@@ -1462,6 +1588,8 @@ const runtime = window.APP_RUNTIME || {mode: 'local', user: null};
           segmentData: segmentSnapshot,
           mapLayer: mapLayerSnapshot
         });
+        if (!videoData) return;
+        routeSnapshot.presentation = structuredClone(videoData.presentation);
         const exportRequest = localService.exportRoute({
           routeData: routeSnapshot,
           videoData,

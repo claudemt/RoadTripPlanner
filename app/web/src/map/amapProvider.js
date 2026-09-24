@@ -20,6 +20,7 @@
       this.geocoder = null;
       this.satelliteLayer = null;
       this.roadNetLayer = null;
+      this.hillshadeLayer = null;
       this.overlays = [];
       this.labelBindings = [];
       this.labelLayer = null;
@@ -108,6 +109,12 @@
       this.map.addControl(new AMap.ToolBar({ position: { top: '12px', right: '12px' } }));
       this.satelliteLayer = new AMap.TileLayer.Satellite({ zIndex: 1, opacity: 1 });
       this.roadNetLayer = new AMap.TileLayer.RoadNet({ zIndex: 2, opacity: 0.65 });
+      this.hillshadeLayer = new AMap.TileLayer({
+        zIndex: 3,
+        opacity: 0.62,
+        zooms: [5, 15],
+        getTileUrl: (x, y, z) => `/api/map/hillshade/${Number(z)}/${Number(x)}/${Number(y)}.webp`
+      });
       this.autoComplete = new AMap.AutoComplete({ city: '全国', citylimit: false });
       this.placeSearch = new AMap.PlaceSearch({ pageSize: 8, pageIndex: 1, city: '全国', extensions: 'all' });
       this.geocoder = new AMap.Geocoder({ city: '全国' });
@@ -119,6 +126,12 @@
       this.map.remove([this.satelliteLayer, this.roadNetLayer]);
       if (layer === 'satellite') this.map.add(this.satelliteLayer);
       if (layer === 'hybrid') this.map.add([this.satelliteLayer, this.roadNetLayer]);
+    }
+
+    setHillshade(enabled) {
+      if (!this.map || !this.hillshadeLayer) return;
+      this.map.remove(this.hillshadeLayer);
+      if (enabled) this.map.add(this.hillshadeLayer);
     }
 
     onClick(handler) {

@@ -177,7 +177,6 @@ X-Auth-Request-Email: me@example.com
 | `PATCH` | `/api/v1/routes/:id/points` | 修改单个点位 |
 | `DELETE` | `/api/v1/routes/:id` | 删除路线 |
 | `POST` | `/api/v1/routes/:id/export` | 后台导出 |
-| `GET` | `/api/v1/export-progress` | 当前账号最近任务 |
 | `GET` | `/api/v1/exports/:taskId` | 查询指定任务 |
 | `POST` | `/api/v1/exports/:taskId/cancel` | 终止当前可取消任务 |
 | `GET` | `/api/v1/routes/:id/product.zip` | 下载路线 ZIP |

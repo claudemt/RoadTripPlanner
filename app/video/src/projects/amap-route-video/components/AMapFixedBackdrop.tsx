@@ -10,6 +10,8 @@ type Props = {
   amapKey?: string;
   amapSecurityCode?: string;
   staticMapImage?: string;
+  hillshade?: boolean;
+  hillshadeEndpoint?: string;
 };
 
 const safeAsset = (src: string) => staticFile(String(src || '').replace(/\\/g, '/').replace(/^\.\//, ''));
@@ -47,7 +49,7 @@ const fallbackBackground = (mapLayer: MapLayer) => {
   return satelliteBase.join(', ');
 };
 
-export const AMapFixedBackdrop: React.FC<Props> = ({center, zoom, mapLayer, amapKey, amapSecurityCode, staticMapImage}) => {
+export const AMapFixedBackdrop: React.FC<Props> = ({center, zoom, mapLayer, amapKey, amapSecurityCode, staticMapImage, hillshade = false, hillshadeEndpoint = '/api/map/hillshade'}) => {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const [handle] = useState(() => delayRender('Loading AMap fixed video backdrop'));
@@ -81,7 +83,14 @@ export const AMapFixedBackdrop: React.FC<Props> = ({center, zoom, mapLayer, amap
         const standard = new AMap.TileLayer({zIndex: 1, opacity: 1});
         const satellite = new AMap.TileLayer.Satellite({zIndex: 1, opacity: 1});
         const roadNet = new AMap.TileLayer.RoadNet({zIndex: 2, opacity: mapLayer === 'hybrid' ? 0.86 : 0});
-        const layers = mapLayer === 'standard' ? [standard] : mapLayer === 'satellite' ? [satellite] : [satellite, roadNet];
+        const hillshadeLayer = new AMap.TileLayer({
+          zIndex: 3,
+          opacity: 0.62,
+          zooms: [5, 15],
+          getTileUrl: (x: number, y: number, z: number) => `${hillshadeEndpoint}/${Number(z)}/${Number(x)}/${Number(y)}.webp`,
+        });
+        const baseLayers = mapLayer === 'standard' ? [standard] : mapLayer === 'satellite' ? [satellite] : [satellite, roadNet];
+        const layers = hillshade ? [...baseLayers, hillshadeLayer] : baseLayers;
         const map = new AMap.Map(ref.current, {
           zoom,
           center,
@@ -114,7 +123,7 @@ export const AMapFixedBackdrop: React.FC<Props> = ({center, zoom, mapLayer, amap
       mapRef.current?.destroy?.();
       mapRef.current = null;
     };
-  }, [amapKey, amapSecurityCode, center, mapLayer, staticMapImage, zoom]);
+  }, [amapKey, amapSecurityCode, center, hillshade, hillshadeEndpoint, mapLayer, staticMapImage, zoom]);
 
   return (
     <AbsoluteFill style={{background: fallbackBackground(mapLayer)}}>
@@ -127,9 +136,6 @@ export const AMapFixedBackdrop: React.FC<Props> = ({center, zoom, mapLayer, amap
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            filter: mapLayer === 'standard' ? 'saturate(.9) contrast(1.04) brightness(.92)' : 'saturate(.88) contrast(1.12) brightness(.76)',
-            transform: 'scale(1.012)',
-            transformOrigin: 'center center',
           }}
         />
       ) : (
@@ -146,7 +152,7 @@ export const AMapFixedBackdrop: React.FC<Props> = ({center, zoom, mapLayer, amap
           }}
         />
       )}
-      <MapOverlay />
+      {!staticMapImage ? <MapOverlay /> : null}
       {failed ? (
         <AbsoluteFill
           style={{

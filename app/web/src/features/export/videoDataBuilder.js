@@ -9,6 +9,8 @@
       route,
       segmentResults,
       currentMapLayer,
+      presentation,
+      pointInfo,
       ensureScenicInfo
     }) {
       const names = [...new Set(route.days
@@ -19,17 +21,24 @@
       const scenicEntries = await Promise.all(names.map(async (name) => [name, await ensureScenicInfo(name)]));
       const scenicMap = Object.fromEntries(scenicEntries.filter(([, spot]) => spot));
       const days = route.days.map((day, dayIndex) => {
-        const points = getDayPoints(day).map((item) => ({
-          name: item.point.name,
-          lng: item.point.lng,
-          lat: item.point.lat,
-          role: item.role,
-          kind: item.kind,
-          transportMode: item.point.transportMode || 'drive',
-          labelOffset: item.point.labelOffset || {x: 0, y: 0},
-          useScenic: item.point.useScenic !== false,
-          scenic: item.point.useScenic === false ? null : (scenicMap[item.point.name] || null)
-        }));
+        const points = getDayPoints(day)
+          .filter((item) => Number.isFinite(Number(item.point?.lng)) && Number.isFinite(Number(item.point?.lat)))
+          .map((item, pointIndex) => {
+            const info = pointInfo?.days?.[dayIndex]?.points?.[pointIndex] || {};
+            return {
+              name: item.point.name,
+              lng: item.point.lng,
+              lat: item.point.lat,
+              role: item.role,
+              kind: item.kind,
+              transportMode: item.point.transportMode || 'drive',
+              labelOffset: item.point.labelOffset || {x: 0, y: 0},
+              useScenic: item.point.useScenic !== false,
+              scenic: item.point.useScenic === false ? null : (scenicMap[item.point.name] || null),
+              ...(Number.isFinite(Number(info.elevationM)) ? {elevationM: Number(info.elevationM)} : {}),
+              ...(info.weather ? {weather: info.weather} : {})
+            };
+          });
         const segments = (segmentResults[dayIndex]?.segments || []).map((segment) => ({
           from: segment.from,
           to: segment.to,
@@ -47,9 +56,10 @@
         };
       });
       return {
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
-        mapLayer: currentMapLayer,
+        mapLayer: presentation?.mapLayer || currentMapLayer,
+        presentation: window.MapPresentation.normalize(presentation || {mapLayer: currentMapLayer}),
         renderSpeed: 1,
         route: {id: route.id, name: route.name || '自驾路线'},
         days,

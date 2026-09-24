@@ -25,6 +25,7 @@ const createRuntimeConfig = (applicationRoot) => {
 
   return {
     amapRoot: projectRoot,
+    dataRoot,
     configRoot,
     remotionRoot,
     remotionData: path.join(remotionRoot, 'src', 'projects', 'amap-route-video', 'data', 'route-video-data.json'),
@@ -64,6 +65,18 @@ const createRuntimeConfig = (applicationRoot) => {
     keyCandidates: [path.join(configRoot, 'local.env')],
     nodeModuleRoots: [path.join(appRoot, 'node_modules'), path.join(projectRoot, 'node_modules')],
     publicRoot: fs.existsSync(path.join(buildRoot, 'index.html')) ? buildRoot : sourceWebRoot,
+    hillshade: {
+      enabled: envFlag('HILLSHADE_ENABLED', true),
+      sourceUrl: envText('HILLSHADE_SOURCE_URL', 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}'),
+      cacheVersion: envText('HILLSHADE_CACHE_VERSION', 'v1') || 'v1',
+      minZoom: Math.max(0, Number(envText('HILLSHADE_MIN_ZOOM', '5')) || 5),
+      maxZoom: Math.max(0, Number(envText('HILLSHADE_MAX_ZOOM', '12')) || 12),
+    },
+    pointInfo: {
+      weatherProvider: envText('POINT_INFO_WEATHER_PROVIDER', 'openmeteo'),
+      elevationProvider: envText('POINT_INFO_ELEVATION_PROVIDER', 'openmeteo'),
+      weatherTtlMinutes: Math.max(1, Number(envText('POINT_INFO_WEATHER_TTL_MINUTES', '30')) || 30),
+    },
   };
 };
 

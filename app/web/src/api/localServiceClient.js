@@ -112,6 +112,9 @@
       saveConfig(config) {
         return postJson('/api/config', config);
       },
+      pointInfo(payload) {
+        return postJson('/api/point-info', payload);
+      },
       getProfile(email = '', options = {}) {
         return cachedGet(email
           ? `/api/profiles/${encodeURIComponent(email)}`
@@ -227,16 +230,12 @@
         });
       },
       getExportProgress() {
-        const path = lastExportTaskId
-          ? `/api/v1/exports/${encodeURIComponent(lastExportTaskId)}`
-          : `/api/v1/export-progress?t=${Date.now()}`;
-        return fetchJson(apiUrl(path));
+        if (!lastExportTaskId) return Promise.resolve({response: {ok: false, status: 409}, data: {ok: false, message: '尚未创建导出任务。'}});
+        return fetchJson(apiUrl(`/api/v1/exports/${encodeURIComponent(lastExportTaskId)}`));
       },
       cancelExport() {
-        const path = lastExportTaskId
-          ? `/api/v1/exports/${encodeURIComponent(lastExportTaskId)}/cancel`
-          : '/api/v1/export-cancel';
-        return fetchJson(apiUrl(path), {method: 'POST'});
+        if (!lastExportTaskId) return Promise.resolve({response: {ok: false, status: 409}, data: {ok: false, message: '尚未创建导出任务。'}});
+        return fetchJson(apiUrl(`/api/v1/exports/${encodeURIComponent(lastExportTaskId)}/cancel`), {method: 'POST'});
       },
     };
   }

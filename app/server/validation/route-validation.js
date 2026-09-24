@@ -39,6 +39,45 @@ const validatePoint = (point, name) => {
   validateLabelOffset(point.labelOffset);
 };
 
+const validatePresentation = (value) => {
+  if (value == null) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid('地图表现设置无效。');
+  assertMapLayer(value.mapLayer);
+  for (const key of ['hillshade', 'weather', 'elevation']) {
+    if (value[key] != null && typeof value[key] !== 'boolean') throw invalid(`地图表现设置 ${key} 无效。`);
+  }
+  if (value.startDate != null && value.startDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(String(value.startDate))) {
+    throw invalid('出发日期无效。');
+  }
+};
+
+const validatePointInfoCache = (value, routeData) => {
+  if (value == null) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid('点位信息缓存无效。');
+  if (Number(value.version || 1) !== 1) throw invalid('点位信息缓存版本无效。');
+  const days = value.days || {};
+  if (!days || typeof days !== 'object' || Array.isArray(days) || Object.keys(days).length > routeData.days.length) {
+    throw invalid('点位信息缓存天数无效。');
+  }
+  Object.entries(days).forEach(([dayIndex, day]) => {
+    const index = Number(dayIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= routeData.days.length || !day || !Array.isArray(day.points)) throw invalid('点位信息缓存日期无效。');
+    if (day.points.length > MAX_POINTS_PER_DAY + 2) throw invalid('点位信息缓存点位过多。');
+    assertText(String(day.geoSignature || ''), '点位信息签名', 50000);
+    if (day.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(day.date))) throw invalid('点位信息日期无效。');
+    if (day.weatherFetchedAt != null && !Number.isFinite(Date.parse(String(day.weatherFetchedAt)))) throw invalid('天气缓存时间无效。');
+    day.points.forEach((info) => {
+      if (!info || typeof info !== 'object' || Array.isArray(info)) throw invalid('点位信息无效。');
+      if (info.elevationM != null && !Number.isFinite(Number(info.elevationM))) throw invalid('海拔缓存无效。');
+      if (info.weather != null) {
+        const weather = info.weather;
+        if (!weather || typeof weather !== 'object' || !/^\d{4}-\d{2}-\d{2}$/.test(String(weather.date || ''))
+          || ![weather.minC, weather.maxC, weather.code].every((item) => Number.isFinite(Number(item)))) throw invalid('天气缓存无效。');
+      }
+    });
+  });
+};
+
 const validateRouteData = (routeData) => {
   if (!routeData || typeof routeData !== 'object' || Array.isArray(routeData)) throw invalid('路线数据无效。');
   assertText(String(routeData.name || ''), '路线名称', MAX_NAME_LENGTH);
@@ -63,6 +102,8 @@ const validateRouteData = (routeData) => {
     day.waypoints.forEach((point, pointIndex) => validatePoint(point, `第 ${dayIndex + 1} 天途径点 ${pointIndex + 1}`));
     validatePoint(day.to, `第 ${dayIndex + 1} 天终点`);
   });
+  validatePresentation(routeData.presentation);
+  validatePointInfoCache(routeData.pointInfoCache, routeData);
   return routeData;
 };
 

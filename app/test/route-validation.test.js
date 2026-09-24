@@ -14,7 +14,13 @@ const validRoute = () => ({
 });
 
 test('accepts a normalized route', () => {
-  assert.equal(validateRouteData(validRoute()).name, '川西环线');
+  const route = validRoute();
+  route.presentation = {mapLayer: 'hybrid', hillshade: true, weather: true, elevation: true, startDate: '2026-09-24'};
+  route.pointInfoCache = {version: 1, days: {0: {
+    geoSignature: 'signature', date: '2026-09-24', weatherFetchedAt: '2026-09-23T00:00:00.000Z',
+    points: [{elevationM: 500, weather: {date: '2026-09-24', minC: 8, maxC: 18, code: 2}}],
+  }}};
+  assert.equal(validateRouteData(route).name, '川西环线');
   assert.equal(assertMapLayer('hybrid'), 'hybrid');
 });
 
@@ -26,6 +32,10 @@ test('rejects invalid route coordinates and label offsets', () => {
   const routeWithBadOffset = validRoute();
   routeWithBadOffset.days[0].waypoints[0].labelOffset.x = 3;
   assert.throws(() => validateRouteData(routeWithBadOffset), /文字标签位置超出范围/);
+
+  const routeWithBadWeather = validRoute();
+  routeWithBadWeather.pointInfoCache = {version: 1, days: {0: {points: [{weather: {date: 'nope', minC: 1, maxC: 2, code: 3}}]}}};
+  assert.throws(() => validateRouteData(routeWithBadWeather), /天气缓存无效/);
 });
 
 test('rejects unsupported map layers and oversized routes', () => {
