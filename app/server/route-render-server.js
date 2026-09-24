@@ -196,7 +196,8 @@ const prepareRemotionPublicDir = (videoData) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roadtrip-remotion-public-'));
   collectRemotionAssets(videoData).forEach((relative) => {
     const source = resolvePublicAssetFile(relative);
-    if (!isPathInside(AMAP_ROOT, source) || !fs.existsSync(source) || fs.statSync(source).isDirectory()) return;
+    const isAllowedSource = isPathInside(AMAP_ROOT, source) || isPathInside(ROUTE_ROOT, source);
+    if (!isAllowedSource || !fs.existsSync(source) || fs.statSync(source).isDirectory()) return;
     const target = path.join(tempDir, relative);
     ensureDir(path.dirname(target));
     fs.copyFileSync(source, target);
