@@ -425,28 +425,33 @@ const Outro: React.FC<{data: RouteVideoData; frame: number}> = ({data, frame}) =
   const outroFrames = getOutroFrames(data);
   const start = total - outroFrames;
   const local = frame - start;
+  const isDense = data.days.length >= 8;
+  const isCompact = data.days.length >= 6;
+  const rowGap = isDense ? 6 : isCompact ? 8 : 12;
+  const dayFontSize = isDense ? 18 : isCompact ? 20 : 24;
+  const pointFontSize = isDense ? 16 : isCompact ? 18 : 22;
   const opacity = interpolate(local, [0, Math.min(26, outroFrames * 0.45), Math.max(outroFrames - 12, outroFrames * 0.72)], [0, 1, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   return (
     <AbsoluteFill style={{opacity, zIndex: 95, background: 'linear-gradient(90deg, rgba(2,6,14,.90), rgba(2,6,14,.72), rgba(2,6,14,.86))', ...styles.font}}>
       <div style={{position: 'absolute', left: 70, top: 70, right: 70}}>
         <div style={{fontSize: 34, fontWeight: 950, color: colors.orange, letterSpacing: 2}}>行程汇总</div>
-        <div style={{fontSize: 78, fontWeight: 1000, marginTop: 12}}>路线与途经点</div>
-        <div style={{display: 'flex', gap: 18, marginTop: 28}}>
+        <div style={{fontSize: isDense ? 62 : 70, lineHeight: 1.05, fontWeight: 1000, marginTop: 8}}>路线与途经点</div>
+        <div style={{display: 'flex', gap: 18, marginTop: isDense ? 16 : 22}}>
           <Badge value={`${data.summary.dayCount}天`} />
           <Badge value={formatTripMetric(data.summary.totalDistance, data.summary.totalDuration)} />
         </div>
       </div>
-      <div style={{position: 'absolute', left: 70, right: 70, bottom: 64, display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 480, overflow: 'hidden'}}>
+      <div style={{position: 'absolute', left: 70, right: 70, top: isDense ? 292 : 306, bottom: 42, display: 'flex', flexDirection: 'column', gap: rowGap, overflow: 'hidden'}}>
         {data.days.map((day, dayIndex) => {
           const points = visualPointsForDay(data, dayIndex);
-          return <div key={day.title || dayIndex} style={{display: 'flex', alignItems: 'center', gap: 12}}>
-            <div style={{flex: '0 0 auto', minWidth: 62, textAlign: 'center', padding: '10px 12px', borderRadius: 14, background: day.color, color: '#07111f', fontWeight: 1000, fontSize: 24}}>D{dayIndex + 1}</div>
-            <div style={{display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, flex: 1, minWidth: 0}}>
+          return <div key={day.title || dayIndex} style={{display: 'flex', alignItems: 'center', gap: isDense ? 8 : 10, minHeight: 0}}>
+            <div style={{flex: '0 0 auto', minWidth: isDense ? 48 : 56, textAlign: 'center', padding: isDense ? '5px 8px' : '7px 10px', borderRadius: isDense ? 10 : 12, background: day.color, color: '#07111f', fontWeight: 1000, fontSize: dayFontSize, lineHeight: 1.1}}>D{dayIndex + 1}</div>
+            <div style={{display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: isDense ? 5 : 7, flex: 1, minWidth: 0, overflow: 'hidden'}}>
               {points.map((point, pointIndex) => (
                 <React.Fragment key={`${dayIndex}-${pointIndex}-${point.name}`}>
-                  {pointIndex > 0 ? <span style={{color: 'rgba(255,255,255,.55)', fontSize: 24, fontWeight: 900, flex: '0 0 auto'}}>→</span> : null}
-                  <div style={{padding: '8px 14px', borderRadius: 12, background: 'rgba(255,255,255,.12)', border: `2px solid ${pointColor(point, day.color)}`, fontSize: 22, fontWeight: 900, whiteSpace: 'nowrap'}}>
-                    <span style={{opacity: .75, marginRight: 6}}>{point.role}</span>{cleanText(point.name, 16)}
+                  {pointIndex > 0 ? <span style={{color: 'rgba(255,255,255,.55)', fontSize: pointFontSize, fontWeight: 900, flex: '0 0 auto'}}>→</span> : null}
+                  <div style={{padding: isDense ? '4px 8px' : '6px 10px', borderRadius: isDense ? 8 : 10, background: 'rgba(255,255,255,.12)', border: `2px solid ${pointColor(point, day.color)}`, fontSize: pointFontSize, fontWeight: 900, whiteSpace: 'nowrap', lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                    <span style={{opacity: .75, marginRight: isDense ? 4 : 6}}>{point.role}</span>{cleanText(point.name, isDense ? 13 : 16)}
                   </div>
                 </React.Fragment>
               ))}
