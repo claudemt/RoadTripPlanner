@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="多人共享景点与路线的地图路书工具。" />
+  <title>山河路书</title>
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body class="app-ready">
+  <div class="app">
+    <aside class="sidebar">
+      <div class="header">
+        <div>
+          <h1>山河路书</h1>
+        </div>
+        <div class="account">
+          <button id="userMenuBtn" class="user-profile-button" type="button" title="用户中心">
+            <span class="profile-avatar header-profile-avatar" id="headerProfileAvatar"><span class="user-menu-icon" aria-hidden="true"></span></span>
+            <span id="accountEmail" class="account-email">正在识别用户</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="toolbar top-toolbar">
+        <button class="primary" id="newRouteBtn">新建</button>
+        <button class="primary" id="calcBtn">刷新</button>
+        <button class="primary" id="exportBtn" title="网站版下载 JSON；本地版可导出文档和视频">导出</button>
+        <button id="mapLayerBtn" title="地图类型：标准/卫星/混合">类型</button>
+        <select id="mapLayerSelect" title="地图类型" hidden>
+          <option value="standard">标准</option>
+          <option value="satellite">卫星</option>
+          <option value="hybrid">混合</option>
+        </select>
+      </div>
+      <section class="map-enhancements" aria-label="地图增强">
+        <div class="map-enhancement-row">
+          <div class="map-feature-switches" role="group" aria-label="地图图层">
+            <label class="map-feature-toggle" title="显示地形明暗">
+              <input id="hillshadeToggle" type="checkbox" />
+              <span class="map-feature-content">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 15.5 7.2 8l2.1 3 2.8-5 5.4 9.5Z"/><path d="m5.4 11 1.8-3 1.4 2"/></svg>
+                <span>山影</span>
+              </span>
+            </label>
+            <label class="map-feature-toggle" title="显示每日天气">
+              <input id="weatherToggle" type="checkbox" />
+              <span class="map-feature-content">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6.2 14.5h8.1a3.2 3.2 0 0 0 .2-6.4A4.8 4.8 0 0 0 5.4 7a3.8 3.8 0 0 0 .8 7.5Z"/><path d="M4 4.2 2.8 3M10 2V.8M4 8H2.2"/></svg>
+                <span>天气</span>
+              </span>
+            </label>
+            <label class="map-feature-toggle" title="显示点位海拔">
+              <input id="elevationToggle" type="checkbox" />
+              <span class="map-feature-content">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15.5 8 7l2.3 3.6L13 6l4 9.5Z"/><path d="M8 7 6.7 9.2h2.7"/></svg>
+                <span>海拔</span>
+              </span>
+            </label>
+            <label class="map-feature-toggle" title="在途经点/终点标注路程与用时">
+              <input id="routeFactsToggle" type="checkbox" />
+              <span class="map-feature-content">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 16 8 6l2.4 4.6L12.8 4l4.2 12Z"/><path d="M9 16h7"/></svg>
+                <span>路程</span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <label class="start-date-control" id="startDateControl" hidden>
+          <span>出发日期</span>
+          <input id="startDateInput" type="date" />
+          <button class="start-date-confirm" id="startDateConfirmBtn" type="button" title="确认并计算天气">✓</button>
+        </label>
+        <span class="map-enhancement-hint" id="weatherRangeHint" hidden></span>
+      </section>
+
+      <div class="route-strip">
+        <div class="route-combo">
+          <select id="routeSelect" title="选择一条路线"></select>
+          <select id="routeViewSelect" title="查看范围"></select>
+        </div>
+      </div>
+
+      <div class="content">
+        <div id="daysList"></div>
+      </div>
+    </aside>
+
+    <div class="app-shell">
+      <main id="map"></main>
+      <div class="map-placeholder show" id="mapPlaceholder">
+        <strong>地图加载中</strong>
+      </div>
+    </div>
+  </div>
+
+  <aside class="spot-panel" id="spotPanel">
+    <div class="spot-head">
+      <span id="spotTitle">景点介绍</span>
+      <button class="small" id="spotCloseBtn">关闭</button>
+    </div>
+    <div class="spot-body" id="spotBody"></div>
+  </aside>
+
+  <div class="image-lightbox" id="imageLightbox">
+    <img id="lightboxImage" alt="景点图片" />
+  </div>
+
+  <section class="account-center" id="accountCenter">
+    <header class="account-page-header">
+      <div class="account-page-brand">
+        <span class="account-page-mark">山</span>
+        <div>
+          <strong>用户中心</strong>
+          <span id="accountCenterEmail">未识别用户</span>
+        </div>
+      </div>
+      <button class="account-map-return" id="accountCenterCloseBtn" type="button"><span>←</span>回到地图</button>
+    </header>
+    <div class="account-page-layout">
+      <aside class="account-navigation">
+        <div class="account-identity">
+          <span class="account-avatar profile-avatar" id="accountProfileAvatar"><span class="user-menu-icon" aria-hidden="true"></span></span>
+          <strong id="accountIdentityNickname">旅人</strong>
+          <span id="accountIdentityEmail">未识别用户</span>
+          <small id="accountIdentityRole">用户</small>
+        </div>
+        <nav>
+          <button class="active" type="button" data-account-view="profile"><span class="account-nav-index">01</span><span>个人介绍</span><small></small></button>
+          <button type="button" data-account-view="routes"><span class="account-nav-index">02</span><span>我的路线</span><small id="accountRouteCount">0</small></button>
+          <button type="button" data-account-view="scenic"><span class="account-nav-index">03</span><span>景点介绍</span><small id="accountSceneCount">0</small></button>
+          <button type="button" data-account-view="community"><span class="account-nav-index">04</span><span>社区论坛</span><small></small></button>
+          <button type="button" data-account-view="admin" id="accountAdminNav" hidden><span class="account-nav-index">05</span><span>管理</span><small>admin</small></button>
+        </nav>
+      </aside>
+      <main class="account-workspace">
+        <section class="account-view active" id="accountViewProfile">
+          <div class="account-workspace-head">
+            <h2>个人介绍</h2>
+            <span id="profilePageEmail">未识别用户</span>
+          </div>
+          <div class="profile-page-layout">
+            <section class="profile-editor" id="profileEditor">
+              <div class="profile-editor-avatar profile-avatar" id="profileEditorAvatar"><span class="user-menu-icon" aria-hidden="true"></span></div>
+              <div class="profile-editor-fields">
+                <label>昵称<input id="profileNicknameInput" maxlength="40" /></label>
+                <label>自我介绍<textarea id="profileBioInput" maxlength="500"></textarea></label>
+                <label>头像<input id="profileAvatarInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
+                <div class="profile-editor-actions">
+                  <button class="primary" id="profileSaveBtn" type="button">保存</button>
+                  <button id="profileRemoveAvatarBtn" type="button">移除头像</button>
+                  <button class="danger" id="profileLogoutBtn" type="button" title="退出登录">退出登录</button>
+                </div>
+              </div>
+            </section>
+            <section class="profile-contributions">
+              <div class="profile-contribution-summary" id="profileContributionSummary"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="account-view" id="accountViewRoutes">
+          <div class="account-workspace-head">
+            <h2>我的路线</h2>
+          </div>
+          <div class="content-switch">
+            <button class="active" type="button" data-route-content="mine">我的路线</button>
+            <button type="button" data-route-content="public">公共路线</button>
+          </div>
+          <div class="account-content-pane active" id="accountRouteMinePane">
+            <div class="account-list" id="accountRouteList"></div>
+          </div>
+          <div class="account-content-pane" id="accountRoutePublicPane">
+            <div class="account-list" id="accountPublicRouteList"></div>
+          </div>
+        </section>
+
+        <section class="account-view" id="accountViewScenic">
+          <div class="account-workspace-head">
+            <h2>景点介绍</h2>
+          </div>
+          <div class="content-switch">
+            <button class="active" type="button" data-scene-content="mine">我的景点</button>
+            <button type="button" data-scene-content="public">公共景点</button>
+          </div>
+          <div class="account-content-pane active" id="accountSceneMinePane">
+            <div class="toolbar toolbar-bare" style="padding:0 0 8px">
+              <button class="primary" id="accountNewSceneBtn" type="button">新建景点介绍</button>
+            </div>
+            <div class="hint account-inline-status" id="accountSceneStatus"></div>
+            <div class="account-list" id="accountSceneList"></div>
+          </div>
+          <div class="account-content-pane" id="accountScenePublicPane">
+            <div class="account-list" id="accountPublicSceneList"></div>
+          </div>
+        </section>
+
+        <section class="account-view community-view" id="accountViewCommunity">
+          <div class="account-workspace-head">
+            <h2>社区论坛</h2>
+            <div class="community-channel-switch">
+              <button id="communityHelpBtn" type="button" title="使用帮助">帮助</button>
+              <button class="active" id="communityPublicBtn" type="button">公聊</button>
+              <button id="communityDirectBtn" type="button" hidden>私聊</button>
+            </div>
+          </div>
+          <div class="community-shell">
+            <div class="community-thread-head" id="communityThreadHead"></div>
+            <div class="community-messages" id="communityMessages"></div>
+            <div class="community-composer">
+              <div class="community-reply-preview" id="communityReplyPreview" hidden>
+                <span id="communityReplyText"></span>
+                <button type="button" id="communityCancelReplyBtn" title="取消引用">×</button>
+              </div>
+              <textarea id="communityMessageInput" maxlength="4000" placeholder="发送消息"></textarea>
+              <div class="community-composer-actions">
+                <label class="community-file-picker">附件<input id="communityAttachmentInput" type="file" multiple /></label>
+                <span id="communityAttachmentNames"></span>
+                <button class="primary" id="communitySendBtn" type="button">发送</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="account-view" id="accountViewAdmin">
+          <div class="account-workspace-head">
+            <h2>管理</h2>
+          </div>
+          <div class="account-settings">
+            <section class="settings-section">
+              <h3>高德地图 Key</h3>
+              <div class="form-grid">
+                <div>
+                  <label>Web JS API Key</label>
+                  <input id="adminAmapKeyInput" autocomplete="off" />
+                </div>
+                <div>
+                  <label>securityJsCode</label>
+                  <input id="adminAmapSecurityInput" autocomplete="off" />
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="primary" id="adminSaveConfigBtn" type="button">保存 Key</button>
+                <button id="adminRefreshBtn" type="button">刷新管理数据</button>
+              </div>
+              <div class="hint" id="adminConfigStatus">Key 仅管理员可见可改。</div>
+            </section>
+            <section class="settings-section">
+              <h3>用户</h3>
+              <div class="account-list" id="adminUserList"></div>
+            </section>
+            <section class="settings-section">
+              <h3>公共路线</h3>
+              <div class="account-list" id="adminPublishedRouteList"></div>
+            </section>
+            <section class="settings-section">
+              <h3>公共景点</h3>
+              <div class="account-list" id="adminPublishedSceneList"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="account-view" id="accountViewLogout">
+          <div class="account-workspace-head">
+            <h2>退出</h2>
+            <span>退出由站点登录系统处理。</span>
+          </div>
+          <button class="primary" id="accountLogoutBtn" type="button">退出登录</button>
+        </section>
+      </main>
+    </div>
+  </section>
+
+  <div class="modal" id="pointModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong id="pointModalTitle">选择地点</strong>
+        <button class="small" id="pointModalClose">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="point-form-row" id="pointSearchRow">
+          <label for="pointSearchInput">输入地点</label>
+          <div class="point-form-control">
+            <div class="search-wrap">
+              <input id="pointSearchInput" placeholder="如：扎尕那、拉卜楞寺、兰州中川机场" autocomplete="off" />
+              <div id="suggestions" class="suggestions"></div>
+            </div>
+            <button id="pointSearchBtn">搜索</button>
+          </div>
+        </div>
+        <div class="point-form-row">
+          <label for="pointName" id="pointNameLabel">地点昵称</label>
+          <input id="pointName" placeholder="可选，如：老李家的客栈" />
+        </div>
+        <input id="pointLngLat" type="hidden" />
+        <div class="transport-chooser" id="pointTransportSection">
+          <input id="pointTransportMode" type="hidden" value="drive" />
+          <div class="transport-options">
+            <button type="button" data-point-transport="drive" title="汽车">车</button>
+            <button type="button" data-point-transport="ride" title="自行车">骑</button>
+            <button type="button" data-point-transport="walk" title="步行">步</button>
+          </div>
+        </div>
+        <div class="scenic-editor">
+          <div class="scenic-editor-head">
+            <label class="scenic-publish-toggle" id="pointUseScenicRow">
+              <input id="pointUseScenic" type="checkbox" checked />
+              <span>景点介绍</span>
+            </label>
+            <div class="scenic-editor-tools">
+              <span class="scenic-image-count" id="pointScenicImageCount">0/6</span>
+              <button type="button" class="scenic-add-btn" id="pointScenicAddBtn" title="继续添加图片，不会覆盖已选图片">＋ 添加图片</button>
+              <button type="button" class="scenic-preview-btn" id="pointScenicPreviewBtn" title="查看这段图文在视频里的排版效果">查看</button>
+            </div>
+          </div>
+          <textarea id="pointScenicDescription" placeholder="输入这个地点的介绍、游玩提示、特色等"></textarea>
+          <input id="pointScenicImages" type="file" accept="image/*" multiple hidden />
+          <div class="scenic-image-list" id="pointScenicImageList"></div>
+        </div>
+        <div class="hint point-modal-status" id="pointModalStatus" hidden></div>
+        <div class="toolbar toolbar-bare">
+          <button class="primary" id="pointConfirmBtn">确定</button>
+          <button id="pointCancelBtn">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="routeLibraryModal">
+    <div class="modal-card route-library-card">
+      <div class="modal-head">
+        <strong>路线库</strong>
+        <button class="small" id="routeLibraryCloseBtn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="toolbar route-library-actions toolbar-bare" style="padding-bottom:8px">
+          <button class="primary" id="publishCurrentRouteBtn">发布当前路线</button>
+          <button id="refreshRouteLibraryBtn">刷新</button>
+        </div>
+        <div class="hint" id="routeManageStatus"></div>
+        <div class="archive-list" id="archiveList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="routePreviewModal">
+    <div class="modal-card route-preview-card">
+      <div class="modal-head">
+        <strong id="routePreviewTitle">路线预览</strong>
+        <button class="small" type="button" data-dialog-close="routePreviewModal">关闭</button>
+      </div>
+      <div class="modal-body route-preview-body" id="routePreviewBody"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="customRouteModal">
+    <div class="modal-card route-library-card">
+      <div class="modal-head">
+        <strong>添加自定义轨迹</strong>
+        <button class="small" type="button" data-dialog-close="customRouteModal">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="point-form-row">
+          <label for="customRouteName">轨迹名称</label>
+          <input id="customRouteName" placeholder="如：G217" />
+        </div>
+        <div class="point-form-row">
+          <label for="customRouteNames">途经点</label>
+          <textarea id="customRouteNames" rows="3" placeholder="地名/公路名，分号分隔"></textarea>
+        </div>
+        <div class="toolbar toolbar-bare">
+          <button type="button" data-map-pick-btn onclick="beginMapPick()">地图选点</button>
+        </div>
+        <div class="point-form-row">
+          <label for="customRouteCoords">轨迹坐标</label>
+          <textarea id="customRouteCoords" rows="3" placeholder="经度,纬度;经度,纬度;…"></textarea>
+        </div>
+        <input id="customRouteDayIndex" type="hidden" />
+        <input id="customRouteSegmentIndex" type="hidden" />
+        <div class="toolbar toolbar-bare">
+          <button class="primary" onclick="addSegmentCustomRoute()">添加</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="spotPreviewModal">
+    <div class="modal-card spot-preview-card">
+      <div class="modal-head">
+        <strong>预览</strong>
+        <button class="small" id="spotPreviewCloseBtn" type="button">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="spot-preview-stage" id="spotPreviewStage"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="sceneDiffModal">
+    <div class="modal-card route-library-card">
+      <div class="modal-head">
+        <strong id="sceneDiffTitle">编辑记录</strong>
+        <button class="small" id="sceneDiffCloseBtn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="account-list compact" id="sceneDiffList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="profileModal">
+    <div class="modal-card profile-modal-card">
+      <div class="modal-head">
+        <strong>个人介绍</strong>
+        <button class="small" type="button" data-dialog-close="profileModal">关闭</button>
+      </div>
+      <div class="modal-body" id="profileModalBody"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="helpModal">
+    <div class="modal-card route-library-card">
+      <div class="modal-head">
+        <strong>使用帮助</strong>
+        <button class="small" type="button" data-dialog-close="helpModal">关闭</button>
+      </div>
+      <div class="modal-body help-doc" id="helpDocBody"></div>
+    </div>
+  </div>
+
+  <div class="setup-overlay" id="setupOverlay">
+    <div class="setup-card">
+      <header>
+        <h2>配置高德地图</h2>
+        <p>填写高德 Web JS API Key 和安全密钥后加载地图。</p>
+      </header>
+      <div class="setup-body">
+        <ol class="setup-steps">
+          <li>打开 <a href="https://console.amap.com/" target="_blank" rel="noreferrer">高德开放平台控制台</a></li>
+          <li>创建「Web端(JS API)」应用，获取 Key</li>
+          <li>在安全密钥中设置并复制 securityJsCode</li>
+          <li>将本地域名或网站正式域名加入高德白名单</li>
+        </ol>
+        <div class="form-grid">
+          <div>
+            <label>Web JS API Key</label>
+            <input id="setupKeyInput" placeholder="粘贴你的 Key" autocomplete="off" />
+          </div>
+          <div>
+            <label>安全密钥 securityJsCode</label>
+            <input id="setupSecurityInput" placeholder="粘贴你的安全密钥" autocomplete="off" />
+          </div>
+        </div>
+        <div class="setup-actions">
+          <button class="primary" id="setupSaveBtn">保存并加载地图</button>
+          <button id="setupTestBtn">测试连接</button>
+        </div>
+        <div class="hint" id="setupStatus">配置保存在服务器本机，仅管理员可维护。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="newRouteModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <strong>新建</strong>
+        <button class="small" id="newRouteCloseBtn" type="button">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="new-route-form">
+          <label>
+            路线名称
+            <input id="newRouteNameInput" placeholder="例如：川西小环线" />
+          </label>
+          <label class="route-desc-field">
+            路线介绍
+            <textarea id="newRouteDescInput" rows="3" maxlength="300" placeholder="一句话介绍这条路线的亮点（可选）"></textarea>
+          </label>
+          <label>
+            天数
+            <input id="newRouteDayCountInput" type="number" min="1" max="30" value="1" />
+          </label>
+        </div>
+        <div class="toolbar new-route-actions">
+          <button class="primary" id="newRouteConfirmBtn" type="button">创建路线</button>
+          <button id="newRouteImportBtn" type="button">从公共路线导入</button>
+          <button id="newRouteCancelBtn" type="button">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="export-dock" id="exportTaskDock" hidden>
+    <button class="export-dock-handle" id="exportDockToggleBtn" type="button" title="导出任务">
+      <span id="exportDockHandleText">导出</span>
+    </button>
+    <div class="export-dock-panel">
+      <div class="export-dock-head">
+        <strong>后台导出</strong>
+        <button class="small export-dock-close" id="exportDockCloseBtn" type="button" title="关闭">✕</button>
+        <button class="small" id="exportDockCollapseBtn" type="button">收起</button>
+      </div>
+      <div id="exportTaskStatus" class="export-dock-status">等待导出任务。</div>
+      <div class="export-dock-progress"><span id="exportDockProgressBar"></span></div>
+      <div id="exportDockDetail" class="export-dock-detail"></div>
+      <button id="exportStopBtn" class="small danger" type="button">终止当前任务</button>
+    </div>
+  </div>
+
+  <div style="display:none">
+    <select id="daySelect"></select>
+  </div>
+
+  <div class="status"><div class="toast" id="toast"></div></div>
+  <div class="loading show" id="loading">
+    <div class="loading-box">
+      <div class="loading-text" id="loadingText">地图加载中</div>
+      <div class="loading-progress show" id="loadingProgress"><span id="loadingProgressBar"></span></div>
+      <div class="loading-detail" id="loadingDetail"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="appPromptModal">
+    <div class="modal-card prompt-card">
+      <div class="modal-head">
+        <strong id="appPromptTitle">输入</strong>
+      </div>
+      <div class="modal-body prompt-body">
+        <input id="appPromptInput" class="prompt-field" />
+        <textarea id="appPromptAreaInput" class="prompt-field" rows="3" hidden></textarea>
+        <div class="toolbar toolbar-bare">
+          <button class="primary" id="appPromptOkBtn" type="button">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="appConfirmModal">
+    <div class="modal-card confirm-card">
+      <div class="modal-head">
+        <strong id="appConfirmTitle">确认</strong>
+        <button class="small" type="button" data-dialog-close="appConfirmModal" id="appConfirmCloseBtn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="hint" id="appConfirmText" style="margin-bottom:12px;white-space:pre-wrap"></div>
+        <div class="toolbar toolbar-bare">
+          <button class="primary" id="appConfirmOkBtn" type="button">确定</button>
+          <button id="appConfirmCancelBtn" type="button">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="exportConfigModal">
+    <div class="modal-card route-library-card" style="width:min(460px,92vw)">
+      <div class="modal-head">
+        <strong>导出配置</strong>
+        <button class="small" type="button" data-dialog-close="exportConfigModal">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="hint" style="margin-bottom:8px">地图类型</div>
+        <div class="point-form-row" style="gap:14px">
+          <label><input type="radio" name="exportMapLayer" value="standard" /> 标准</label>
+          <label><input type="radio" name="exportMapLayer" value="satellite" /> 卫星</label>
+          <label><input type="radio" name="exportMapLayer" value="hybrid" /> 卫星+路网</label>
+        </div>
+        <div class="hint" style="margin:14px 0 8px">叠加层</div>
+        <div class="point-form-row" style="gap:14px">
+          <label><input type="checkbox" id="exportHillshade" /> 山影</label>
+          <label><input type="checkbox" id="exportRouteFacts" /> 路程</label>
+          <label><input type="checkbox" id="exportWeather" /> 天气</label>
+          <label><input type="checkbox" id="exportElevation" /> 海拔</label>
+        </div>
+        <div class="toolbar toolbar-bare">
+          <button class="primary" id="exportConfigOkBtn" type="button">开始导出</button>
+          <button type="button" data-dialog-close="exportConfigModal">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/bootstrap.js"></script>
+</body>
+</html>

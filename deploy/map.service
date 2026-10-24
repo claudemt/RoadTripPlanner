@@ -1,0 +1,23 @@
+[Unit]
+Description=RoadTripPlanner map service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=roadtrip
+Group=roadtrip
+WorkingDirectory=/opt/RoadTripPlanner/app
+EnvironmentFile=/etc/roadplan/map.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server/route-render-server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/roadtrip
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,74 @@
+(function () {
+  function create({
+    routeColors,
+    getDayPoints,
+    cleanDayTitle,
+    summarizeVideoDays
+  }) {
+    async function build({
+      route,
+      segmentResults,
+      currentMapLayer,
+      presentation,
+      pointInfo,
+      ensureScenicInfo
+    }) {
+      const names = [...new Set(route.days
+        .flatMap((day) => getDayPoints(day)
+          .filter((item) => item.point.useScenic !== false)
+          .map((item) => item.point.name))
+        .filter(Boolean))];
+      const scenicEntries = await Promise.all(names.map(async (name) => [name, await ensureScenicInfo(name)]));
+      const scenicMap = Object.fromEntries(scenicEntries.filter(([, spot]) => spot));
+      const days = route.days.map((day, dayIndex) => {
+        const points = getDayPoints(day)
+          .filter((item) => window.RouteModel.isPointReady(item.point))
+          .map((item, pointIndex) => {
+            const info = pointInfo?.days?.[dayIndex]?.points?.[pointIndex] || {};
+            return {
+              name: item.point.name,
+              lng: item.point.lng,
+              lat: item.point.lat,
+              role: item.role === '起' || item.role === '终' ? item.role : '',
+              kind: item.kind,
+              transportMode: item.point.transportMode || 'drive',
+              labelOffset: item.point.labelOffset || {x: 0, y: 0},
+              useScenic: item.point.useScenic !== false,
+              scenic: item.point.useScenic === false ? null : (scenicMap[item.point.name] || null),
+              ...(Number.isFinite(Number(info.elevationM)) ? {elevationM: Number(info.elevationM)} : {}),
+              ...(info.weather ? {weather: info.weather} : {})
+            };
+          });
+        const segments = (segmentResults[dayIndex]?.segments || []).map((segment) => ({
+          from: segment.from,
+          to: segment.to,
+          distance: segment.distance || 0,
+          duration: segment.duration || 0,
+          mode: segment.mode || 'drive',
+          path: segment.path || [],
+          error: segment.error || ''
+        }));
+        return {
+          title: cleanDayTitle(day.title) || `第 ${dayIndex + 1} 天`,
+          points,
+          segments,
+          color: routeColors[dayIndex % routeColors.length]
+        };
+      });
+      return {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        mapLayer: presentation?.mapLayer || currentMapLayer,
+        presentation: window.MapPresentation.normalize(presentation || {mapLayer: currentMapLayer}),
+        renderSpeed: 1,
+        route: {id: route.id, name: route.name || '自驾路线', description: route.description || ''},
+        days,
+        summary: summarizeVideoDays(days)
+      };
+    }
+
+    return {build};
+  }
+
+  window.VideoDataBuilder = {create};
+})();
