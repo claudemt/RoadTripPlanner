@@ -1,0 +1,35 @@
+{
+  "name": "road-trip-planner-workspace",
+  "version": "2.2.0",
+  "private": true,
+  "description": "可以直接导出宣发视频的本地路书。",
+  "workspaces": [
+    "video"
+  ],
+  "scripts": {
+    "start": "node server/route-render-server.js",
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "cli": "node scripts/roadtrip-cli.js",
+    "test": "node --test test/*.test.js",
+    "release:check": "npm test && npm run build && npm run typecheck && node --check server/route-render-server.js && node --check server/routes/map-enhancement-routes.js",
+    "studio": "npm --workspace video run studio",
+    "prepare:video-data": "node scripts/prepare-video-data.js",
+    "typecheck": "npm run prepare:video-data && npm --workspace video run typecheck",
+    "preview:video": "node scripts/preview-video.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.5",
+    "heic2any": "^0.0.4"
+  },
+  "devDependencies": {
+    "vite": "^8.1.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.35.5"
+  }
+}
