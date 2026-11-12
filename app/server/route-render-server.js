@@ -19,6 +19,7 @@ const { createLocalRouteStore } = require("./services/local-route-store");
 const { buildFinalizeArgs } = require("./services/music-merge");
 const { buildScenicPlacementPlan } = require("./services/scenic-placement");
 const weatherCodeMap = require("../shared/weather-codes.json");
+const ROUTE_DAY_COLORS = require("../shared/route-colors.js");
 let createSupabaseClient = null;
 try {
   ({ createClient: createSupabaseClient } = require("@supabase/supabase-js"));
@@ -3053,7 +3054,7 @@ const buildRoutePreviewImage = async (routeId, identity) => {
 };
 const buildScriptVideoData = (routeData, mapLayer = "standard", override = null) => {
   if (override && typeof override === "object") return override;
-  const colors = ["#1677ff", "#16a34a", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4", "#64748b"];
+  const colors = ROUTE_DAY_COLORS;
   const days = (routeData?.days || []).map((day, dayIndex) => {
     const points = [day.from, ...day.waypoints || [], day.to].filter(hasPointCoordinates).map((point, pointIndex, all) => {
       const coord = point.coordSystem === "wgs84" ? wgs84ToGcj02(Number(point.lng), Number(point.lat)) : [Number(point.lng), Number(point.lat)];

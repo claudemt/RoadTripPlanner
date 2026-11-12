@@ -9,6 +9,7 @@ test('browser and API exports exclude named points with blank coordinates and ke
   loadBrowserFile(context, 'web/src/domain/routeModel.js');
   context.window.MapPresentation = {normalize: (value) => value};
   loadBrowserFile(context, 'web/src/features/export/videoDataBuilder.js');
+  context.ROUTE_DAY_COLORS = require('../shared/route-colors.js');
   loadFunctions(context, ['buildScriptVideoData'], 'server/route-render-server.js');
   const route = {id: 'demo', name: 'demo', description: '穿越草原与雪山的路线介绍', days: [{title: 'first day',
     from: {name: 'unset start', lng: null, lat: null},

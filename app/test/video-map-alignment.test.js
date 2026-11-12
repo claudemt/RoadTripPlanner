@@ -15,7 +15,7 @@ geoModule.paths = Module._nodeModulePaths(path.dirname(geoFile));
 geoModule._compile(ts.transpileModule(fs.readFileSync(geoFile, 'utf8'), {
   compilerOptions: {module: ts.ModuleKind.CommonJS},
 }).outputText, geoFile);
-const {computeCamera, collectAllPoints, layoutPointLabels} = geoModule.exports;
+const {computeCamera, collectAllPoints} = geoModule.exports;
 
 const route = {
   mapLayer: 'standard',
@@ -118,80 +118,4 @@ test('outro duration includes enough pages for every route day', () => {
   const timeline = buildTimeline(data);
   assert.equal(getTotalDuration(data) - getOutroFrames(data), timeline[timeline.length - 1].end);
   assert.ok(getOutroFrames(data) >= Math.ceil(data.days.length / OUTRO_PAGE_SIZE) * 90);
-});
-
-test('video labels keep the web anchor for manually arranged points', () => {
-  const width = 1280;
-  const height = 720;
-  const scale = 1;
-  const items = [
-    {key: 'manual', x: 500, y: 400, text: '赛里木湖', labelOffset: {x: 0.1, y: -0.05}},
-    {key: 'auto', x: 500, y: 400, text: '那拉提', labelOffset: {x: 0, y: 0}},
-  ];
-  const boxes = layoutPointLabels(items, width, height, [], scale);
-  const manual = boxes.get('manual');
-  assert.ok(Math.abs(manual.x - (500 + 15 + 0.1 * width)) < 1e-6);
-  assert.ok(Math.abs(manual.y - (400 - 56 - 0.05 * height)) < 1e-6);
-  const auto = boxes.get('auto');
-  const overlap = Math.max(0, Math.min(manual.x + manual.width, auto.x + auto.width) - Math.max(manual.x, auto.x))
-    * Math.max(0, Math.min(manual.y + manual.height, auto.y + auto.height) - Math.max(manual.y, auto.y));
-  assert.equal(overlap, 0, 'auto labels must not cover a manual placement');
-
-  const withMore = layoutPointLabels([...items, {key: 'later', x: 400, y: 300, text: '新增点', labelOffset: {x: 0, y: 0}}], width, height, [], scale);
-  assert.deepEqual(withMore.get('manual'), manual, 'manual placement must not move when more POIs appear');
-});
-
-test('day-mode labels stay on the web anchors instead of relocating', () => {
-  const items = [
-    {key: 'a', x: 500, y: 400, text: '甲', labelOffset: {x: 0.02, y: -0.02}},
-    {key: 'b', x: 500, y: 400, text: '乙', labelOffset: {x: 0, y: 0}},
-  ];
-  const boxes = layoutPointLabels(items, 1280, 720, [], 1, [], true);
-  assert.ok(Math.abs(boxes.get('a').x - (500 + 15 + 0.02 * 1280)) < 1e-6);
-  assert.ok(Math.abs(boxes.get('a').y - (400 - 56 - 0.02 * 720)) < 1e-6);
-  assert.ok(Math.abs(boxes.get('b').x - (500 + 15)) < 1e-6);
-  assert.ok(Math.abs(boxes.get('b').y - (400 - 56)) < 1e-6);
-});
-
-const rectOverlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
-  * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
-
-test('newly revealed labels yield to cards already on screen, older labels stay put', () => {
-  const card = {x: 0, y: 0, width: 700, height: 300};
-  const anchor = {x: 200, y: 300};
-  const early = {key: 'early', ...anchor, text: '先出现的点', labelOffset: {x: 0, y: 0}, avoidRects: []};
-  const late = {key: 'late', ...anchor, text: '新出现的点', labelOffset: {x: 0, y: 0}, avoidRects: [card]};
-  const boxes = layoutPointLabels([early, late], 1280, 720, [], 1, [], true);
-  assert.ok(Math.abs(boxes.get('early').x - (anchor.x + 15)) < 1e-6);
-  assert.ok(Math.abs(boxes.get('early').y - (anchor.y - 56)) < 1e-6);
-  assert.equal(rectOverlap(boxes.get('late'), card), 0);
-
-  const nextDay = layoutPointLabels([{...late, avoidRects: undefined}], 1280, 720, [], 1, [], true).get('late');
-  assert.ok(Math.abs(nextDay.x - (anchor.x + 15)) < 1e-6);
-  assert.ok(Math.abs(nextDay.y - (anchor.y - 56)) < 1e-6);
-
-  const tallCard = {x: 0, y: 0, width: 700, height: 700};
-  const tallBox = layoutPointLabels([
-    {key: 'tall', x: 200, y: 350, text: '新出现的点', labelOffset: {x: 0, y: 0}, avoidRects: [tallCard]},
-  ], 1280, 720, [], 1, [], true).get('tall');
-  assert.equal(rectOverlap(tallBox, tallCard), 0, 'cards taller than the offset grid must still be cleared');
-});
-
-test('manually arranged labels keep their position beside scenic cards', () => {
-  const card = {x: 0, y: 0, width: 700, height: 300};
-  const boxes = layoutPointLabels([
-    {key: 'pinned', x: 200, y: 300, text: '手动景点', labelOffset: {x: 0.1, y: 0.1}, avoidRects: [card]},
-  ], 1280, 720, [], 1, [], true);
-  assert.ok(Math.abs(boxes.get('pinned').x - (200 + 15 + 0.1 * 1280)) < 1e-6);
-  assert.ok(Math.abs(boxes.get('pinned').y - (300 - 56 + 0.1 * 720)) < 1e-6);
-});
-
-test('a newly revealed point moves off a card even when its label was dragged', () => {
-  const card = {x: 700, y: 0, width: 580, height: 420};
-  const boxes = layoutPointLabels([
-    {key: 'dragged', x: 840, y: 180, text: '唐布拉百里画廊\n366km/4h52min', labelOffset: {x: -0.05, y: 0.05}, avoidRects: [card]},
-  ], 1280, 720, [], 1, [], true);
-  const box = boxes.get('dragged');
-  assert.equal(rectOverlap(box, card), 0, '拖动过的当天标签也必须避开新弹出的景点卡');
-  assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1280 && box.y + box.height <= 720);
 });

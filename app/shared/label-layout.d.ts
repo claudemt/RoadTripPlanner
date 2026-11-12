@@ -21,6 +21,8 @@ export type LabelLayoutOptions = {
   routeClearance?: number;
   maxRings?: number;
   lockPositions?: boolean;
+  lockManual?: boolean;
+  candidateStep?: number;
   items?: LabelLayoutItem[];
   obstacles?: LabelBox[];
   paths?: {x: number; y: number}[][];

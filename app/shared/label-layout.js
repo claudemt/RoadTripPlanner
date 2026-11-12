@@ -37,14 +37,16 @@
   const hasVisibleOffset = (offset) => Math.abs(Number(offset && offset.x ? offset.x : 0)) > 1e-4
     || Math.abs(Number(offset && offset.y ? offset.y : 0)) > 1e-4;
 
-  const buildCandidates = (primary, gap, avoidRects, maxRings) => {
+  const buildCandidates = (primary, gap, avoidRects, maxRings, step) => {
     const candidates = [primary];
+    const stepX = step > 0 ? Math.min(primary.width + gap, step) : primary.width + gap;
+    const stepY = step > 0 ? Math.min(primary.height + gap, step) : primary.height + gap;
     for (let ring = 1; ring <= maxRings; ring += 1) {
       DIRECTION_ORDER.forEach(([x, y]) => {
         candidates.push({
           ...primary,
-          x: primary.x + x * ring * (primary.width + gap),
-          y: primary.y + y * ring * (primary.height + gap)
+          x: primary.x + x * ring * stepX,
+          y: primary.y + y * ring * stepY
         });
       });
     }
@@ -68,6 +70,8 @@
     const routeClearance = (Number.isFinite(options && options.routeClearance) ? Number(options.routeClearance) : DEFAULT_ROUTE_CLEARANCE) * scale;
     const maxRings = Number.isFinite(options && options.maxRings) ? Number(options.maxRings) : DEFAULT_MAX_RINGS;
     const lockPositions = Boolean(options && options.lockPositions);
+    const lockManualOffsets = !(options && options.lockManual === false);
+    const candidateStep = Number.isFinite(options && options.candidateStep) ? Number(options.candidateStep) : 0;
     const obstacles = (options && options.obstacles) || [];
     const paths = (options && options.paths) || [];
     const items = (options && options.items) || [];
@@ -87,7 +91,7 @@
       const ownRects = Array.isArray(item.avoidRects) ? item.avoidRects : [];
       const ownObstacles = Array.isArray(item.obstacles) ? item.obstacles : obstacles;
       const manualOffset = hasVisibleOffset(userOffset);
-      const locked = Boolean(item.locked) || (!ownRects.length && (manualOffset || lockPositions));
+      const locked = Boolean(item.locked) || (!ownRects.length && ((manualOffset && lockManualOffsets) || lockPositions));
       return {
         item,
         index,
@@ -128,7 +132,7 @@
         });
         return;
       }
-      const candidates = buildCandidates(primary, gap, avoidRects, maxRings);
+      const candidates = buildCandidates(primary, gap, avoidRects, maxRings, candidateStep);
       let best = primary;
       let bestScore = Number.POSITIVE_INFINITY;
       candidates.forEach((candidate, candidateIndex) => {

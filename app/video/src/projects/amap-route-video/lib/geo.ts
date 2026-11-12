@@ -1,5 +1,4 @@
 import {LngLat, RouteVideoData, VideoDay} from '../types';
-import {layoutLabels as sharedLayoutLabels} from '../../../../../shared/label-layout.js';
 
 export type Camera = {
   center: LngLat;
@@ -12,15 +11,6 @@ export type LabelBox = {
   y: number;
   width: number;
   height: number;
-};
-
-export type LabelLayoutItem = {
-  key: string;
-  x: number;
-  y: number;
-  text: string;
-  labelOffset?: {x: number; y: number};
-  avoidRects?: LabelBox[];
 };
 
 const TILE_SIZE = 256;
@@ -60,37 +50,6 @@ const estimateLabelWidth = (text: string, fontSize: number) => {
   return clamp(Math.ceil(measured + fontSize * 1.45), fontSize * 3.6, fontSize * 22);
 };
 
-export const layoutPointLabels = (items: LabelLayoutItem[], width: number, height: number, avoidRects: LabelBox[] = [], scale = clamp(Math.min(width / 1280, height / 720), 0.9, 1.35), avoidPaths: {x: number; y: number}[][] = [], lockPositions = false): Map<string, LabelBox> => {
-  const fontSize = 17 * scale;
-  const prepared = items.map((item) => {
-    const text = String(item.text || '');
-    const lineCount = text.split('\n').length;
-    return {
-      key: item.key,
-      x: item.x,
-      y: item.y,
-      width: Math.max(...text.split('\n').map((line) => estimateLabelWidth(line, fontSize))),
-      height: (lineCount > 1 ? 33 + (lineCount - 1) * 21 : 33) * scale,
-      userOffset: item.labelOffset || {x: 0, y: 0},
-      avoidRects: item.avoidRects || []
-    };
-  });
-  const boxes = sharedLayoutLabels({
-    width,
-    height,
-    scale,
-    items: prepared,
-    obstacles: avoidRects,
-    paths: avoidPaths,
-    lockPositions
-  });
-  const result = new Map<string, LabelBox>();
-  prepared.forEach((item) => {
-    const box = boxes.get(String(item.key));
-    if (box) result.set(item.key, {x: box.x, y: box.y, width: box.width, height: box.height});
-  });
-  return result;
-};
 const mercatorX = (lng: number, zoom = 0) => ((lng + 180) / 360) * TILE_SIZE * Math.pow(2, zoom);
 const mercatorY = (lat: number, zoom = 0) => {
   const safeLat = clamp(lat, -85.05112878, 85.05112878);

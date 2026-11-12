@@ -1,6 +1,6 @@
 const runtime = window.APP_RUNTIME || { user: null };
 const STORAGE_KEY = `tour-driving-route-planner:v4:${runtime.user?.id || "local"}`;
-const ROUTE_COLORS = ["#1677ff", "#16a34a", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4", "#64748b"];
+const ROUTE_COLORS = window.RouteColors;
 const SEGMENT_CACHE_VERSION = 3;
 const localService = window.LocalServiceClient.create(runtime);
 const communityEnabled = localService.capabilities?.community !== false;

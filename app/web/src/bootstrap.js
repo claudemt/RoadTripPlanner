@@ -75,5 +75,7 @@ await import('./features/search/placeSearchController.js');
 await import('./features/archive/archiveController.js');
 await import('./features/point/poiAliasStore.js');
 await import('./features/point/pointEditorController.js');
+const routeColors = await import('../../shared/route-colors.js');
+window.RouteColors = routeColors.default || routeColors;
 await import('./features/export/videoDataBuilder.js');
 await import('./main.js');

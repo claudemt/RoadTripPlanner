@@ -2,7 +2,8 @@ import React from 'react';
 import {AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {AMapFixedBackdrop, fallbackBackground} from '../components/AMapFixedBackdrop';
 import {routeFont, useRouteFont} from '../lib/font';
-import {computeCamera, cumulativePointProgress, dayPath, daySegmentPaths, layoutPointLabels, markerScale, pointScale, sampleDayPath, segmentRevealFractions, svgPath, LabelBox} from '../lib/geo';
+import {computeCamera, cumulativePointProgress, dayPath, daySegmentPaths, markerScale, pointScale, sampleDayPath, segmentRevealFractions, svgPath, LabelBox} from '../lib/geo';
+import {boxAttachPoint, groupPins, labelPinGap, layoutPinLabels, measureLabel, PinLabelKind, pinAttachPoint, spreadPins} from '../lib/labels';
 import {activeScenics, scenicDedup, scenicStartKeys} from '../lib/scenic';
 import {cleanText, dayDistance, dayDurationSeconds, findActiveTiming, formatTripMetric, getCoverFrames, getDayRouteFrames, getOutroFrames, getTotalDuration, OUTRO_MAP_FRAMES, OUTRO_PAGE_SIZE} from '../lib/timeline';
 import {RouteVideoData, ScenicInfo, VideoDay, VideoPoint} from '../types';
@@ -65,15 +66,6 @@ const pointRouteFacts = (day: VideoDay, pointIndex: number, data: RouteVideoData
   return hours > 0 ? `${km}km/${hours}h${String(minutes).padStart(2, '0')}min` : `${km}km/${minutes}min`;
 };
 
-const isSamePoint = (left: VideoPoint | undefined, right: VideoPoint | undefined) => {
-  if (!left || !right) return false;
-  const leftName = String(left.name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-  const rightName = String(right.name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-  return Boolean(leftName && leftName === rightName)
-    && Math.abs(Number(left.lng) - Number(right.lng)) <= 0.000001
-    && Math.abs(Number(left.lat) - Number(right.lat)) <= 0.000001;
-};
-
 const placeKey = (point: VideoPoint | undefined) => String(point?.name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 
 const isLabelSuperseded = (
@@ -95,11 +87,11 @@ const isLabelSuperseded = (
   return false;
 };
 
-const PointMarker: React.FC<{data: RouteVideoData; point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; labelBox?: LabelBox; revealFrame?: number | null; suppressLabel?: boolean; routeFactsLine?: string}> = ({data, point, x, y, color, visible, labelMode, labelText, labelBox, revealFrame = null, suppressLabel = false, routeFactsLine = ''}) => {
+const PointMarker: React.FC<{data: RouteVideoData; point: VideoPoint; x: number; y: number; color: string; visible: boolean; labelMode: LabelMode; labelText?: string; labelBox?: LabelBox; revealFrame?: number | null; routeFactsLine?: string}> = ({data, point, x, y, color, visible, labelMode, labelText, labelBox, revealFrame = null, routeFactsLine = ''}) => {
   const frame = useCurrentFrame();
   const {width, height} = useVideoConfig();
   const pop = revealFrame === null ? 1 : clamp((frame - revealFrame) / 6, 0, 1);
-  const showLabel = !suppressLabel && (labelMode === 'all' || (labelMode === 'endpoints' && (point.kind === 'from' || point.kind === 'to')));
+  const showLabel = labelMode === 'all' || (labelMode === 'endpoints' && (point.kind === 'from' || point.kind === 'to'));
   const labelOffset = point.labelOffset || {x: 0, y: 0};
   const scale = pointScale(data, width, height);
   const pin = markerScale(data, width, height);
@@ -384,76 +376,145 @@ const RouteLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | null;
   );
 };
 
-const routeLabelText = (data: RouteVideoData, dayIndex: number, point: VideoPoint) => {
-  if (point.role === '起' && dayIndex > 0 && isSamePoint(data.days[dayIndex - 1]?.points[data.days[dayIndex - 1].points.length - 1], point)) {
-    return `D${dayIndex}终&D${dayIndex + 1}起 ${point.name}`;
-  }
-  return point.role === '起' || point.role === '终'
-    ? `D${dayIndex + 1}${point.role} ${point.name}`
-    : point.name;
-};
-
-const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | null; activeProgress: number; camera: ReturnType<typeof computeCamera>; hideLabels?: boolean; activeStart?: number | null; routeFrames?: number | null; revealAvoidRects?: LabelBox[][]}> = ({data, activeDayIndex, activeProgress, camera, hideLabels = false, activeStart = null, routeFrames = null, revealAvoidRects = []}) => {
+const MarkersLayer: React.FC<{data: RouteVideoData; activeDayIndex: number | null; activeProgress: number; camera: ReturnType<typeof computeCamera>; hideLabels?: boolean; activeStart?: number | null; routeFrames?: number | null; scenicRects?: LabelBox[]}> = ({data, activeDayIndex, activeProgress, camera, hideLabels = false, activeStart = null, routeFrames = null, scenicRects = []}) => {
   const {width, height} = useVideoConfig();
+  const frame = useCurrentFrame();
+  const scale = pointScale(data, width, height);
+  const pin = markerScale(data, width, height);
   const revealFrameFor = (dayIndex: number, pointIndex: number, thresholds: number[]) => {
     if (activeDayIndex === null || dayIndex !== activeDayIndex || activeStart === null || routeFrames === null) return null;
     return activeStart + (thresholds[pointIndex] ?? 0) * routeFrames;
   };
-  const labelItems = data.days.flatMap((day, dayIndex) => {
+  const entries = React.useMemo(() => data.days.flatMap((day, dayIndex) => {
+    const thresholds = cumulativePointProgress(day);
     let labelMode: LabelMode = 'none';
     if (activeDayIndex === null) labelMode = hideLabels ? 'none' : 'all';
     else if (dayIndex < activeDayIndex) labelMode = 'endpoints';
     else if (dayIndex === activeDayIndex) labelMode = 'all';
-    return day.points.flatMap((point, pointIndex) => {
-      if (isLabelSuperseded(data, dayIndex, pointIndex, activeDayIndex)) return [];
-      const showLabel = labelMode === 'all' || (labelMode === 'endpoints' && (point.kind === 'from' || point.kind === 'to'));
-      if (!showLabel) return [];
+    return day.points.map((point, pointIndex) => {
       const {x, y} = camera.project([point.lng, point.lat]);
-      const key = `${dayIndex}-${pointIndex}-${point.name}`;
-      const facts = pointFacts(point, data);
-      const routeFactsLine = pointRouteFacts(day, pointIndex, data);
-      const text = `${routeLabelText(data, dayIndex, point)}${facts ? `\n${facts}` : ''}${routeFactsLine ? `\n${routeFactsLine}` : ''}`;
-      const avoidRects = dayIndex === activeDayIndex ? revealAvoidRects[pointIndex] : undefined;
-      return [{key, x, y, text, labelOffset: point.labelOffset, avoidRects}];
+      const visible = activeDayIndex === null
+        || (dayIndex < activeDayIndex && (point.kind === 'from' || point.kind === 'to'))
+        || (dayIndex === activeDayIndex && thresholds[pointIndex] <= activeProgress);
+      const wantsLabel = labelMode === 'all' || (labelMode === 'endpoints' && (point.kind === 'from' || point.kind === 'to'));
+      return {
+        key: `${dayIndex}-${pointIndex}-${point.name}`,
+        day,
+        dayIndex,
+        point,
+        pointIndex,
+        name: point.name,
+        role: point.role,
+        x,
+        y,
+        visible,
+        showLabel: visible && wantsLabel && !isLabelSuperseded(data, dayIndex, pointIndex, activeDayIndex)
+      };
     });
+  }), [data, activeDayIndex, activeProgress, hideLabels, camera]);
+
+  const groups = React.useMemo(() => groupPins(entries.filter((entry) => entry.visible)), [entries]);
+  const entryByKey = new Map(entries.map((entry) => [entry.key, entry]));
+  const groupIndexByKey = new Map<string, number>();
+  groups.forEach((group, index) => group.members.forEach((key) => groupIndexByKey.set(key, index)));
+  // 同一像素上的点位（市中心的桥和公园、夜市和景区）会把彼此的图钉盖住，先轻轻推开再排标签
+  const pinAnchors = React.useMemo(() => groups.map((group) => {
+    const entry = entryByKey.get(group.survivor)!;
+    return {x: entry.x, y: entry.y};
+  }), [groups, entries]);
+  const pinPositions = React.useMemo(() => spreadPins(pinAnchors, 26, 26), [pinAnchors]);
+  const positionOf = (key: string) => pinPositions[groupIndexByKey.get(key) ?? -1] || {x: 0, y: 0};
+  const labelTexts = new Map<string, string>();
+  const labelItems = entries.filter((entry) => entry.visible && entry.showLabel
+    && groups[groupIndexByKey.get(entry.key) ?? -1]?.labelOwner === entry.key).map((entry) => {
+    const groupIndex = groupIndexByKey.get(entry.key) ?? -1;
+    const prefixes = groups[groupIndex]?.labelPrefixes || [];
+    const labelText = prefixes.length ? `${prefixes.join('&')} ${entry.point.name}` : entry.point.name;
+    const facts = pointFacts(entry.point, data);
+    const routeFactsLine = pointRouteFacts(entry.day, entry.pointIndex, data);
+    const text = `${labelText}${facts ? `\n${facts}` : ''}${routeFactsLine ? `\n${routeFactsLine}` : ''}`;
+    const kind: PinLabelKind = entry.point.kind === 'from' || entry.point.kind === 'to' ? 'endpoint' : 'waypoint';
+    // 起点终点先占位（标签必须贴着真实点位），途径点随后排；
+    // order 只跟点位顺序有关，标签逐条出现时先后位置不会互相挤动。
+    const order = (kind === 'endpoint' ? 0 : 400000) + entry.dayIndex * 2000 + entry.pointIndex * 10;
+    const measured = measureLabel(text, scale);
+    const position = positionOf(entry.key);
+    labelTexts.set(entry.key, labelText);
+    return {key: entry.key, x: position.x, y: position.y, width: measured.width, height: measured.height, kind, order,
+      pinIndex: groupIndexByKey.get(entry.key)};
   });
   const avoidPaths = data.days.map((day) => dayPath(day).map((coord) => camera.project(coord)));
-  const avoidRects = activeDayIndex === null ? [] : [HUD_RECT];
-  const labelBoxes = layoutPointLabels(labelItems, width, height, avoidRects, pointScale(data, width, height), avoidPaths, activeDayIndex !== null);
-  const frame = useCurrentFrame();
+  const fixedRects = activeDayIndex === null ? scenicRects : [HUD_RECT, ...scenicRects];
+  const labelBoxes = layoutPinLabels(labelItems, {
+    width,
+    height,
+    pinScale: pin,
+    labelScale: scale,
+    pins: pinPositions,
+    rects: fixedRects,
+    paths: avoidPaths,
+    margin: 10
+  });
+  const leaders = groups.map((group, index) => {
+    const anchor = pinAnchors[index];
+    const position = pinPositions[index];
+    if (!anchor || !position) return null;
+    if (Math.hypot(position.x - anchor.x, position.y - anchor.y) < 2) return null;
+    const entry = entryByKey.get(group.survivor)!;
+    return {key: entry.key, anchor, position, color: entry.day.color, visible: entry.visible};
+  }).filter(Boolean) as {key: string; anchor: {x: number; y: number}; position: {x: number; y: number}; color: string; visible: boolean}[];
+  // 标签被挤开时拉一根细引线回自己的钉子，避免“这行字到底属于哪个点”看不出来。
+  const labelLeaders = labelItems.map((item) => {
+    const box = labelBoxes.get(item.key);
+    if (!box) return null;
+    if (labelPinGap(box, item.x, item.y, pin) < 12 * scale) return null;
+    const entry = entryByKey.get(item.key);
+    if (!entry || !entry.visible) return null;
+    const start = pinAttachPoint(box, item.x, item.y, pin);
+    const attach = boxAttachPoint(box, item.x, item.y);
+    return {key: item.key, x1: start.x, y1: start.y, x2: attach.x, y2: attach.y, color: pointColor(entry.point, entry.day.color)};
+  }).filter(Boolean) as {key: string; x1: number; y1: number; x2: number; y2: number; color: string}[];
   const dayFadeIn = activeStart === null ? 1 : interpolate(frame - activeStart, [0, 9], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   return (
     <AbsoluteFill style={{opacity: dayFadeIn, pointerEvents: 'none'}}>
-      {data.days.map((day, dayIndex) => {
-        const thresholds = cumulativePointProgress(day);
-        let labelMode: LabelMode = 'none';
-        if (activeDayIndex === null) labelMode = hideLabels ? 'none' : 'all';
-        else if (dayIndex < activeDayIndex) labelMode = 'endpoints';
-        else if (dayIndex === activeDayIndex) labelMode = 'all';
-        return day.points.map((point, pointIndex) => {
-          if (isLabelSuperseded(data, dayIndex, pointIndex, activeDayIndex)) return null;
-          const {x, y} = camera.project([point.lng, point.lat]);
-          const visible = activeDayIndex === null
-            || (dayIndex < activeDayIndex && (point.kind === 'from' || point.kind === 'to'))
-            || (dayIndex === activeDayIndex && thresholds[pointIndex] <= activeProgress);
-          return (
-            <PointMarker
-              data={data}
-              key={`${dayIndex}-${pointIndex}-${point.name}`}
-              point={point}
-              x={x}
-              y={y}
-              color={pointColor(point, day.color)}
-              visible={visible}
-              labelMode={labelMode}
-              labelText={routeLabelText(data, dayIndex, point)}
-              routeFactsLine={pointRouteFacts(day, pointIndex, data)}
-              labelBox={labelBoxes.get(`${dayIndex}-${pointIndex}-${point.name}`)}
-              revealFrame={revealFrameFor(dayIndex, pointIndex, thresholds)}
-              suppressLabel={isLabelSuperseded(data, dayIndex, pointIndex, activeDayIndex)}
-            />
-          );
-        });
+      {leaders.length || labelLeaders.length ? (
+        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{position: 'absolute', inset: 0, overflow: 'visible', zIndex: 30}}>
+          {labelLeaders.map((leader) => (
+            <g key={`label-${leader.key}`}>
+              <line x1={leader.x1} y1={leader.y1} x2={leader.x2} y2={leader.y2} stroke="rgba(255,255,255,.95)" strokeWidth={4.2} strokeLinecap="round" />
+              <line x1={leader.x1} y1={leader.y1} x2={leader.x2} y2={leader.y2} stroke={leader.color} strokeWidth={1.8} strokeLinecap="round" opacity={0.9} />
+              <circle cx={leader.x1} cy={leader.y1} r={2.6} fill="#fff" stroke={leader.color} strokeWidth={1.6} />
+            </g>
+          ))}
+          {leaders.map((leader) => leader.visible ? (
+            <g key={leader.key}>
+              <line x1={leader.anchor.x} y1={leader.anchor.y} x2={leader.position.x} y2={leader.position.y} stroke="rgba(255,255,255,.9)" strokeWidth={4} strokeLinecap="round" />
+              <line x1={leader.anchor.x} y1={leader.anchor.y} x2={leader.position.x} y2={leader.position.y} stroke={leader.color} strokeWidth={2} strokeLinecap="round" opacity={0.85} />
+              <circle cx={leader.anchor.x} cy={leader.anchor.y} r={3.4} fill="#fff" stroke={leader.color} strokeWidth={2} />
+            </g>
+          ) : null)}
+        </svg>
+      ) : null}
+      {groups.map((group, index) => {
+        const entry = entryByKey.get(group.survivor)!;
+        const owner = group.labelOwner ? entryByKey.get(group.labelOwner) || null : null;
+        const position = pinPositions[index] || {x: entry.x, y: entry.y};
+        return (
+          <PointMarker
+            data={data}
+            key={entry.key}
+            point={entry.point}
+            x={position.x}
+            y={position.y}
+            color={pointColor(entry.point, entry.day.color)}
+            visible={entry.visible}
+            labelMode={owner ? 'all' : 'none'}
+            labelText={owner ? labelTexts.get(owner.key) : undefined}
+            routeFactsLine={owner ? pointRouteFacts(owner.day, owner.pointIndex, data) : ''}
+            labelBox={owner ? labelBoxes.get(owner.key) : undefined}
+            revealFrame={revealFrameFor(entry.dayIndex, entry.pointIndex, cumulativePointProgress(entry.day))}
+          />
+        );
       })}
     </AbsoluteFill>
   );
@@ -636,18 +697,12 @@ export const AmapRouteVideo: React.FC<Props> = ({data, amapKey, amapSecurityCode
   const scenicOffsetX = (width - SCENIC_DESIGN_WIDTH * scenicScale) / 2;
   const scenicOffsetY = (height - SCENIC_DESIGN_HEIGHT * scenicScale) / 2;
   const scenics = layoutScenicCards(revealedScenics, SCENIC_DESIGN_WIDTH, SCENIC_DESIGN_HEIGHT);
-  const revealAvoidRects = React.useMemo(() => {
-    if (!activeDay) return [];
-    return thresholds.map((threshold) => {
-      const revealed = activeScenics(activeDay, active?.dayIndex ?? 0, threshold, thresholds, dedup.suppress, dedup.showAtStart, startKeys);
-      return layoutScenicCards(revealed, SCENIC_DESIGN_WIDTH, SCENIC_DESIGN_HEIGHT).map((scenic) => ({
-        x: scenic.x * scenicScale + scenicOffsetX,
-        y: scenic.y * scenicScale + scenicOffsetY,
-        width: (SCENIC_CARD_WIDTH + SCENIC_ENTER_DISTANCE) * scenicScale,
-        height: scenic.metrics.height * scenicScale,
-      }));
-    });
-  }, [activeDay, active?.dayIndex, thresholds, scenicScale, scenicOffsetX, scenicOffsetY, dedup, startKeys]);
+  const scenicRects = React.useMemo(() => scenics.map((scenic) => ({
+    x: scenic.x * scenicScale + scenicOffsetX,
+    y: scenic.y * scenicScale + scenicOffsetY,
+    width: (SCENIC_CARD_WIDTH + SCENIC_ENTER_DISTANCE) * scenicScale,
+    height: scenic.metrics.height * scenicScale
+  })), [scenics, scenicScale, scenicOffsetX, scenicOffsetY]);
   const backdrop = (
     <AMapFixedBackdrop
       center={camera.center}
@@ -688,7 +743,7 @@ export const AmapRouteVideo: React.FC<Props> = ({data, amapKey, amapSecurityCode
         hideLabels={!active && frame < getCoverFrames(data)}
         activeStart={active ? active.start : null}
         routeFrames={active ? revealEnd : null}
-        revealAvoidRects={revealAvoidRects}
+        scenicRects={scenicRects}
       />
       {activeDay ? <Runner day={activeDay} progress={activeProgress} camera={camera} scale={pointScale(data, width, height)} /> : null}
       {activeDay && active ? <Hud data={data} day={activeDay} dayIndex={active.dayIndex} progress={activeProgress} fadeIn={interpolate(local, [0, 9], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})} /> : null}
